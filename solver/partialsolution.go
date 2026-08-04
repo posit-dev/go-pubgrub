@@ -76,10 +76,32 @@ func (ps *PartialSolution[P, S]) ensure() {
 
 // Level reports the current decision level: the number of decisions made.
 //
-// Level 0 means no decisions yet, which is where derivations from the root fact
-// live. The specification's §11 records that the primary source is internally
-// inconsistent about whether the floor is 0 or 1; this implementation uses 0
-// throughout, matching every worked example in that source.
+// Level 0 means no decisions yet. Every Decide increments, so the FIRST decision
+// — including the root one — lands at level 1.
+//
+// # ⚠️ This numbering is off by one from the specification's, and §7 is not yet
+// written
+//
+// §1's definition carries a parenthetical — "not counting the initial
+// fact-of-existence for the root package as a 'real' decision level increment" —
+// and §10's trace follows it: the root decision sits at level 0, and the first
+// NON-root decision at level 1. This type cannot implement that exemption,
+// because Decide does not know which package is the root; whoever owns that
+// knowledge is the main loop, which lands with §8.
+//
+// Both schemes are internally coherent, but THE BACKTRACK FLOOR IS
+// SCHEME-SPECIFIC: §10's numbering needs floor 0, this one needs floor 1. §11
+// item 1 resolves the floor to 0 for §10's scheme. So when §7's conflict
+// resolution is written, the floor must be chosen to match whichever scheme is
+// in force here — not copied from §11 without checking.
+//
+// Getting that pairing wrong in one direction over-backtracks (wasteful, still
+// converges, since the discarded work is re-derived and re-decided). Getting it
+// wrong in the other direction UNDER-backtracks, leaving the conflict still
+// fully satisfied, violating §7.1's first guarantee and letting the main loop
+// spin. An earlier version of this comment claimed floor 0 "matching every
+// worked example", which is §10's scheme's floor paired with this scheme's
+// numbering — the over-backtracking half, and wrong for this code.
 func (ps *PartialSolution[P, S]) Level() int { return ps.level }
 
 // Len reports how many assignments have been made.
@@ -104,6 +126,30 @@ func (ps *PartialSolution[P, S]) Assignments() []Assignment[P, S] { return ps.as
 //
 // This raises the decision level, because a decision is a guess that may have to
 // be retracted as a unit.
+//
+// # PRECONDITION: set must satisfy §8's eligibility, and violating it corrupts
+// the partial solution silently
+//
+// §8 requires the chosen version to lie "within the intersection of every term
+// the partial solution has accumulated about that package so far". Decide does
+// not check, and passing an ineligible version does not fail — it intersects the
+// accumulated term down to Positive(∅), which is always false. term.Relation
+// tests Satisfied before Contradicted, so an always-false receiver then answers
+// Satisfied to EVERY term about that package, of either polarity. Classify goes
+// on to report arbitrary unrelated incompatibilities as fully satisfied
+// conflicts, and §7 will build a proof tree out of one.
+//
+// Vacuously those answers are "correct" — an inconsistent assumption set entails
+// everything — which is exactly why it is dangerous: the caller cannot tell a
+// real conflict from state it has already corrupted. This is a wrong derivation
+// dressed as certainty.
+//
+// Propagation cannot cause it. AlmostSatisfied requires the open term to be
+// Inconclusive, which means both accumulated ∧ t and accumulated ∧ ¬t are
+// non-empty, so deriving ¬t can never empty the accumulated term. Only Decide
+// can, which is why the obligation sits here. Whether to enforce it — assert,
+// return an error, or leave it to the §8 candidate chooser that has to compute
+// the intersection anyway — is settled when the decision strategy is written.
 func (ps *PartialSolution[P, S]) Decide(pkg P, set S) {
 	ps.ensure()
 	ps.level++
@@ -237,10 +283,33 @@ func (ps *PartialSolution[P, S]) Decisions() []Assignment[P, S] {
 // SatisfierOf returns the index of the first assignment at which the partial
 // solution, read in order, comes to satisfy t — and false if it never does.
 //
-// This is the "satisfier" conflict resolution is defined in terms of: the single
-// assignment that tips a term from not-yet-satisfied to satisfied. It is
-// computed by replaying the prefix rather than by inspecting the accumulated
-// term, because the question is specifically *when* satisfaction happened.
+// It is computed by replaying the prefix rather than by inspecting the
+// accumulated term, because the question is specifically *when* satisfaction
+// happened. Satisfaction is monotone under further intersection, so the earliest
+// tipping point is well defined and unique.
+//
+// # ⚠️ This is a PER-TERM primitive and is NOT §7.2's satisfier
+//
+// §7.2's satisfier is "the earliest assignment such that the prefix ending at it
+// already fully satisfies I" — I being the whole incompatibility. That is the
+// MAXIMUM over the per-term satisfier indices, which §10 spells out: "D2
+// completes the json-term on its own; the http-term was already complete
+// earlier, at decision 5. The later of the two, chronologically, is D2."
+//
+// So a caller that iterates an incompatibility's terms and calls this for one of
+// them gets a per-term answer, and Go map order decides WHICH — intermittently.
+// On §10's own state the wrong pick is a decision, so §7.4's "satisfier is a
+// decision" escape fires immediately, the round of resolution never happens, and
+// the generalization from "http 2.0.0 is bad" to "no http in [2.0, 2.5) will ever
+// work" is never derived. A silently weaker solver, not a broken one.
+//
+// §7.2's previousSatisfier is not expressible through this API at all: one branch
+// needs the earliest prefix that satisfies I *with a designated later assignment
+// injected*, the other needs the point at which every OTHER term of I became
+// satisfied. Both are per-incompatibility queries. §7's implementation must add
+// them over *Incompatibility rather than reach for this.
+//
+// The returned index is invalidated by BacktrackTo — see Assignments.
 func (ps *PartialSolution[P, S]) SatisfierOf(pkg P, t term.Term[S]) (int, bool) {
 	var running term.Term[S]
 	started := false
