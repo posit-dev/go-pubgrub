@@ -14,3 +14,5 @@
 // "what is the intersection of these two ranges" are very different bugs, and
 // conflating them makes both harder to find.
 package term
+
+// (control test: this comment exercises the clean-room CI gate and will be reverted.)
