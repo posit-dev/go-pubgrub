@@ -87,6 +87,17 @@ func (ps *PartialSolution[P, S]) Len() int { return len(ps.assignments) }
 
 // Assignments returns the chronological assignments. The slice must not be
 // modified.
+//
+// # It is INVALIDATED by BacktrackTo, not merely shortened
+//
+// BacktrackTo truncates by re-slicing the same backing array, so a slice
+// obtained before it — and every index into one, including those from
+// SatisfierOf — is stale afterwards: the next Derive appends over the discarded
+// tail and silently rewrites elements the old slice still spans.
+//
+// This matters concretely for §7's conflict-resolution loop, which computes the
+// satisfier and previous-satisfier as indices, THEN truncates, and may iterate
+// again. Re-read after every BacktrackTo rather than caching across one.
 func (ps *PartialSolution[P, S]) Assignments() []Assignment[P, S] { return ps.assignments }
 
 // Decide records a decision: pkg is pinned to the single version denoted by set.
@@ -163,7 +174,32 @@ func (ps *PartialSolution[P, S]) Accumulated(pkg P) (term.Term[S], bool) {
 // already satisfied, the incompatibility would classify as fully satisfied, and
 // every dependency would be reported as a conflict instead of being DERIVED.
 // Dependency resolution would never resolve anything.
+//
+// # An always-false term is the one exception
+//
+// Positive(∅) asks for a version from an empty range, so it is false in every
+// world — including one where the package is still undecided. §2.5's definition
+// ("S contradicts t if t is forced false whenever every term in S is true")
+// therefore yields Contradicted with nothing asserted, and §2.4 says outright
+// that an incompatibility holding such a term "will never fire and never needs
+// to be checked again".
+//
+// Without this case the inconclusive rule above swallows it: the always-false
+// term looks like the single open term of an almost-satisfied incompatibility,
+// and propagation derives its negation — recording an assignment of the
+// vacuously-true "not ∅" for a package nothing has said anything about. That is
+// not unsound, since the derived term constrains nothing, but it makes
+// Accumulated report ok for an untouched package, shifts every SatisfierOf
+// index, gives the junk assignment a decision level that BacktrackTo then
+// honors, and leaves §9's derivation graph with a node whose cause can never
+// fire. §2.5's own table is written for nonempty ranges, whose justification —
+// "a version could still be decided later that lands in r" — is exactly what
+// fails when r is empty.
 func (ps *PartialSolution[P, S]) Relation(pkg P, t term.Term[S]) term.Relation {
+	if t.IsAlwaysFalse() {
+		return term.Contradicted
+	}
+
 	accumulated, ok := ps.accumulated[pkg]
 	if !ok {
 		return term.Inconclusive
@@ -238,8 +274,19 @@ func (ps *PartialSolution[P, S]) SatisfierOf(pkg P, t term.Term[S]) (int, bool) 
 func (ps *PartialSolution[P, S]) BacktrackTo(level int) {
 	ps.ensure()
 
+	// Clamp BOTH sides. Backtracking only ever moves backwards, so a target above
+	// the current level is a caller error — and honoring it would raise the level
+	// without any decision behind it, permanently breaking §1's definition of a
+	// decision level as "the number of decisions at or before that point". §7.4's
+	// correctness argument rests on that equality, and once it is false the
+	// surviving assignments become unreachable by any later BacktrackTo, since
+	// their levels all sit below the inflated one. The low side was already
+	// clamped; the asymmetry was the whole invitation to the mistake.
 	if level < 0 {
 		level = 0
+	}
+	if level > ps.level {
+		level = ps.level
 	}
 
 	kept := ps.assignments

@@ -31,6 +31,11 @@ type Store[P comparable, S versionset.Set[S]] struct {
 
 	// byPackage maps a package to indices into all, in insertion order.
 	byPackage map[P][]int
+
+	// empty holds the empty incompatibility, if one has been added. It cannot be
+	// indexed by package, since it mentions none, and there is at most one of it
+	// because all empty incompatibilities are Equal. See Add.
+	empty *Incompatibility[P, S]
 }
 
 // NewStore returns an empty store.
@@ -45,9 +50,28 @@ func NewStore[P comparable, S versionset.Set[S]]() *Store[P, S] {
 // no duplicates — which matters because conflict resolution can rederive a fact
 // already known, and a store full of duplicates would make propagation
 // repeatedly derive the same consequence.
+//
+// # The empty incompatibility is handled separately
+//
+// Both loops below are driven by the term map, so an incompatibility with no
+// terms would skip dedup entirely AND be indexed under no package — landing in
+// the store as an un-findable duplicate that Mentioning can never return. It
+// gets its own slot instead. The empty incompatibility is precisely the object
+// whose appearance means "no solution exists", so it is the last thing that
+// should be silently unreachable, even though §7.4 returns it before reaching
+// this method today.
 func (st *Store[P, S]) Add(inc *Incompatibility[P, S]) *Incompatibility[P, S] {
 	if st.byPackage == nil {
 		st.byPackage = make(map[P][]int)
+	}
+
+	if inc.IsEmpty() {
+		if st.empty != nil {
+			return st.empty
+		}
+		st.empty = inc
+		st.all = append(st.all, inc)
+		return inc
 	}
 
 	// Only incompatibilities sharing a package can be equal, so the search is

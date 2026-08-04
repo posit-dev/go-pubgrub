@@ -740,3 +740,128 @@ func TestStringers(t *testing.T) {
 		}
 	}
 }
+
+// --- Regressions from the independent correctness review of 2026-08-04 ---
+//
+// Each of these asserts a LAW the type claims to uphold, not the behavior the
+// implementation happened to have. Three separate defects in this repository have
+// now been shipped with a passing test beside them, because a test written from
+// the same understanding as the implementation agrees with it.
+
+// TestInertIncompatibilityNeverFires pins §2.4's "will never fire and never
+// needs to be checked again" for a term asking for a version from an empty
+// range.
+//
+// Positive(∅) is false in every world, so §2.5's definition of contradiction
+// yields Contradicted even with nothing asserted. Reading §2.5's *table* instead
+// (which says a positive term is inconclusive when nothing is asserted, on the
+// grounds that "a version could still be decided later that lands in r" —
+// untrue when r is empty) makes the always-false term look like the single open
+// term of an almost-satisfied incompatibility, and propagation then derives the
+// vacuous "not ∅" for a package nothing has mentioned.
+func TestInertIncompatibilityNeverFires(t *testing.T) {
+	inert := NewIncompatibility(KindDerived, map[string]tm{
+		"root": pos(versionset.Exactly(1)),
+		"x":    pos(versionset.Empty()),
+	})
+	if !inert.IsInert() {
+		t.Fatal("precondition: incompatibility with Positive(∅) should be inert")
+	}
+
+	ps := newPS()
+	ps.Decide("root", versionset.Exactly(1))
+
+	if got := ps.Relation("x", pos(versionset.Empty())); got != term.Contradicted {
+		t.Errorf("Relation(unassigned, Positive(∅)) = %v, want Contradicted: an "+
+			"always-false term is contradicted by every state, including the empty one", got)
+	}
+
+	st := NewStore[string, set]()
+	st.Add(inert)
+	before := ps.Len()
+	Propagate(ps, st, "root")
+
+	if ps.Len() != before {
+		t.Errorf("Propagate added %d assignment(s) from an inert incompatibility; §2.4 says it never fires",
+			ps.Len()-before)
+	}
+	if _, ok := ps.Accumulated("x"); ok {
+		t.Error("Accumulated(\"x\") reports ok, but nothing has been asserted about x")
+	}
+}
+
+// TestLevelAlwaysEqualsDecisionCount pins §1's definition of a decision level as
+// "the number of decisions at or before that point", which §7.4's correctness
+// argument rests on. BacktrackTo clamped the low side only, so a target above the
+// current level raised the level with no decision behind it — permanently, and
+// leaving the surviving assignments unreachable by any later BacktrackTo, since
+// their levels all sit below the inflated one.
+func TestLevelAlwaysEqualsDecisionCount(t *testing.T) {
+	ps := newPS()
+	ps.Decide("a", versionset.Exactly(1))
+
+	ps.BacktrackTo(7) // Above the current level: nonsense, and must not be honored.
+	if ps.Level() != len(ps.Decisions()) {
+		t.Errorf("after BacktrackTo(7): Level() = %d, want %d (= number of decisions)",
+			ps.Level(), len(ps.Decisions()))
+	}
+
+	ps.Decide("b", versionset.Exactly(1))
+	if ps.Level() != len(ps.Decisions()) {
+		t.Errorf("after a later Decide: Level() = %d, want %d — the inflation is permanent",
+			ps.Level(), len(ps.Decisions()))
+	}
+
+	// Backtracking within range still truncates, so the clamp did not disable it.
+	ps.BacktrackTo(1)
+	if ps.Level() != 1 || len(ps.Decisions()) != 1 {
+		t.Errorf("BacktrackTo(1): level=%d decisions=%d, want 1 and 1", ps.Level(), len(ps.Decisions()))
+	}
+}
+
+// TestStoreDedupsEmptyIncompatibility pins Add's documented "the store holds no
+// duplicates". Both of Add's loops are driven by the term map, so a zero-term
+// incompatibility skipped dedup AND was indexed under no package — landing as an
+// un-findable duplicate. It is the object whose appearance means "no solution
+// exists", so being silently unreachable is the wrong property for it to have.
+func TestStoreDedupsEmptyIncompatibility(t *testing.T) {
+	st := NewStore[string, set]()
+	first := NewIncompatibility(KindDerived, map[string]tm{})
+	second := NewIncompatibility(KindDerived, map[string]tm{})
+
+	if !first.IsEmpty() || !first.Equal(second) {
+		t.Fatal("precondition: both should be empty and Equal")
+	}
+
+	if got := st.Add(first); got != first {
+		t.Error("Add of the first empty incompatibility should store and return it")
+	}
+	if got := st.Add(second); got != first {
+		t.Error("Add of an Equal empty incompatibility should return the stored one")
+	}
+	if st.Len() != 1 {
+		t.Errorf("Len() = %d after adding two Equal empty incompatibilities, want 1", st.Len())
+	}
+}
+
+// TestIsDerivedFollowsCausesNotKind pins the authority for §9's graph walk,
+// which follows causes and reports nil-cause nodes as the external facts that
+// forced the failure. KindDerived is the zero value — chosen so an unlabeled
+// incompatibility would not masquerade as an authoritative external fact, which
+// is right for the label and exactly inverted for the graph.
+func TestIsDerivedFollowsCausesNotKind(t *testing.T) {
+	labeled := NewIncompatibility(KindDerived, map[string]tm{"a": pos(versionset.Exactly(1))})
+	if labeled.IsDerived() {
+		t.Error("IsDerived() is true for an incompatibility with no causes; §9 would walk it as a leaf")
+	}
+
+	real := newDerived(map[string]tm{"a": pos(versionset.Exactly(1))},
+		dep("a", versionset.Exactly(1), "b", versionset.Exactly(1)),
+		dep("b", versionset.Exactly(1), "c", versionset.Exactly(1)))
+	if !real.IsDerived() {
+		t.Error("IsDerived() is false for an incompatibility built from two causes")
+	}
+	if _, _, derived := real.Causes(); !derived {
+		t.Error("Causes() and IsDerived() disagree")
+	}
+}

@@ -143,11 +143,33 @@ func (inc *Incompatibility[P, S]) Kind() Kind { return inc.kind }
 
 // Causes returns the two incompatibilities combined to derive this one, and
 // false for an external fact.
+//
+// # This is the authority on derivedness, and Kind is not
+//
+// §9's explanation walk is defined over the derivation graph — it follows causes
+// toward leaves and reports those leaves as the external facts that forced the
+// failure. So a node with nil causes IS a leaf to that walk, whatever its Kind
+// says.
+//
+// Kind is a label for phrasing the explanation; it cannot be trusted to answer
+// this question, because KindDerived is the zero value and so is what any
+// incompatibility built without naming a kind reports. That zero value was
+// chosen so an unlabeled incompatibility would not masquerade as an
+// authoritative external fact — which is right for the label and exactly
+// inverted for the graph. IsDerived resolves it the safe way for both: ask
+// causes.
 func (inc *Incompatibility[P, S]) Causes() (a, b *Incompatibility[P, S], derived bool) {
 	if inc.causes[0] == nil || inc.causes[1] == nil {
 		return nil, nil, false
 	}
 	return inc.causes[0], inc.causes[1], true
+}
+
+// IsDerived reports whether this incompatibility came from conflict resolution
+// rather than being an external fact, per its causes rather than its Kind. See
+// Causes for why those can disagree and why causes wins.
+func (inc *Incompatibility[P, S]) IsDerived() bool {
+	return inc.causes[0] != nil && inc.causes[1] != nil
 }
 
 // Packages returns the mentioned packages, in map order.
