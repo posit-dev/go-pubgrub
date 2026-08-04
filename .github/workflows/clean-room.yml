@@ -1,0 +1,87 @@
+name: Clean-room attestation
+
+# RFD 0001 §7.1 requires an attestation in every pull request that touches the
+# PubGrub implementation. This job is the enforcement: a note in CONTRIBUTING is
+# not a control, because nothing checks it.
+#
+# The check is deliberately narrow. It verifies the attestation box is ticked; it
+# cannot verify the statement is true. What it buys is that the claim is explicit,
+# recorded against a specific diff, and impossible to skip silently.
+
+on:
+  pull_request:
+    # edited matters: without it, someone can open a PR with the box unticked,
+    # let CI pass on an empty body, then never revisit it.
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  attestation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check for the attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Dependency bumps touch go.mod, not the algorithm, and no human is
+          # in a position to attest on a bot's behalf.
+          case "$PR_ACTOR" in
+            dependabot|dependabot[bot]|renovate[bot])
+              echo "::notice::Skipping attestation check for automation author $PR_ACTOR."
+              exit 0
+              ;;
+          esac
+
+          changed_go="$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only | grep -c '\.go$' || true)"
+          if [ "$changed_go" -eq 0 ]; then
+            echo "::notice::No Go files changed; attestation not required."
+            exit 0
+          fi
+          echo "$changed_go Go file(s) changed; attestation required."
+
+          body="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq '.body // ""')"
+
+          # Match the ticked box on the attestation line, tolerating "x" or "X"
+          # and surrounding whitespace, but NOT an unticked "- [ ]".
+          if printf '%s' "$body" | grep -qiE '^[[:space:]]*[-*][[:space:]]*\[[[:space:]]*[xX][[:space:]]*\][[:space:]]*I attest that I have not read'; then
+            echo "Attestation present and ticked."
+            exit 0
+          fi
+
+          echo "::error::This pull request changes Go files but does not carry a ticked clean-room attestation."
+          echo ""
+          echo "Add this line to the pull request description, ticked, only if it is true:"
+          echo ""
+          echo "- [x] I attest that I have not read pubgrub-rs/pubgrub, astral-sh/pubgrub, contriboss/pubgrub-go, or any other PubGrub implementation source while writing these changes."
+          echo ""
+          echo "See .github/pull_request_template.md and RFD 0001 section 7.1."
+          exit 1
+
+  forbidden-dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # A structural cross-check that costs nothing: if a known PubGrub
+      # implementation ever appears in the module graph, something has gone
+      # badly wrong regardless of what any attestation says.
+      - name: Assert no PubGrub implementation is a dependency
+        run: |
+          set -euo pipefail
+          if grep -nEi 'pubgrub-rs|astral-sh/pubgrub|contriboss/pubgrub' go.mod go.sum 2>/dev/null; then
+            echo "::error::A PubGrub implementation appears in this module's dependencies."
+            exit 1
+          fi
+          echo "No PubGrub implementation in go.mod or go.sum."

@@ -1,0 +1,25 @@
+go-pubgrub
+Copyright 2026 Posit Software, PBC
+
+This product is licensed under the Apache License, Version 2.0, or the MIT
+license, at your option. See LICENSE-APACHE and LICENSE-MIT.
+
+This product implements the PubGrub version-solving algorithm, described by
+Natalie Weizenbaum (https://medium.com/@nex3/pubgrub-2fb6470504f) and in the
+documentation of the Dart `pub` package manager (https://github.com/dart-lang/pub),
+by Natalie Weizenbaum and the Dart team. Credit for the algorithm belongs to
+them; PubGrub was published as prose explicitly so that it could be implemented
+across languages, and cross-language ports with credit are the established
+pattern in this space.
+
+This implementation is written from that published prose. NO SOURCE FROM ANY
+OTHER PUBGRUB IMPLEMENTATION IS INCORPORATED, and none has been read while
+writing it. In particular this is not a port or a derivative of
+pubgrub-rs/pubgrub, astral-sh/pubgrub, or any Go-language PubGrub
+implementation. See CLEAN-ROOM.md for the policy and the controls that enforce
+it.
+
+That statement is deliberate and load-bearing: pubgrub-rs and its forks are
+licensed under the Mozilla Public License 2.0, whose file-level copyleft would
+attach to derived files. Independence here is a legal property, not a
+preference.
