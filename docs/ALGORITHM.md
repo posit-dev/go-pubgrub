@@ -927,3 +927,26 @@ implementation needs the most care and the most test coverage.
    principles in either source, and is worth keeping in mind if the Go implementation ever
    needs to reason about worst-case behavior (e.g., guarding against pathological inputs
    with a max-iteration safety valve in production, separate from correctness).
+8. **THIS DOCUMENT CONTRADICTS ITSELF about what an unassigned package entails, and §2.5
+   is the half that is wrong.** Added 2026-08-04 after an independent correctness review
+   of the solver found it; it is a defect in this specification, not in the code.
+
+   §2.5's truth table states that with nothing asserted about a package, a *negative* term
+   is **satisfied**, on the reasoning that absence makes every negative term true. But §10's
+   worked trace contradicts that at steps 3, 4-5 and 6, all of which treat an unassigned
+   package as **inconclusive** for a negative term — and §6's unit propagation collapses
+   entirely without the inconclusive reading, because a dependency incompatibility is
+   `{depender: Positive, dependee: Negative}`, so a satisfied-by-absence negative term makes
+   every dependency classify as *fully* satisfied the moment the depender is selected. Every
+   dependency would be reported as a conflict and nothing would ever resolve.
+
+   **The resolution is that §2.5's row describes a term's truth in a COMPLETED world, while
+   the partial solution's relation asks what the assignments so far ENTAIL.** Those are
+   different questions. An unassigned package is undecided, not known-absent: a version could
+   still be decided later, which would make a negative term false. So the partial solution
+   entails nothing about it, for either polarity.
+
+   This was found the hard way — the implementation followed §2.5 literally first, broke every
+   dependency derivation, and failed six propagation tests before being corrected. §2.5's
+   table should be read as being about worlds, and a sentence saying so belongs in §2.5
+   itself. Until that is written, prefer §10's behavior wherever the two disagree.
