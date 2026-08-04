@@ -865,3 +865,242 @@ func TestIsDerivedFollowsCausesNotKind(t *testing.T) {
 		t.Error("Causes() and IsDerived() disagree")
 	}
 }
+
+// --- §10's worked example, transcribed ---
+
+// Versions from §10's universe, mapped onto the reference integer sets. Only the
+// ordering matters, so 1.0.0 -> 100 and 2.5.0 -> 250 keeps the arithmetic legible
+// against the spec's own tables.
+const (
+	v100 = 100 // 1.0.0
+	v200 = 200 // 2.0.0
+	v250 = 250 // 2.5.0
+)
+
+// TestSection10Trace replays §10's hand-traced example against the code.
+//
+// This exists because the correctness review of 2026-08-04 found that §10's trace
+// would have caught three of its findings unaided, and no test transcribed it. Every
+// other test in this file was written from the same reading of the spec as the
+// implementation, which is exactly the condition under which a test agrees with a
+// bug. §10 is the one artifact in the project that states, independently and
+// concretely, what the answers are supposed to be.
+//
+// # What it covers, and what it deliberately does not
+//
+// Steps 1-7 are propagation and classification, which exist. The satisfier
+// arithmetic in the conflict-resolution section is checked as far as today's API
+// allows. Steps 8-10 need §7's conflict resolution, which is not written; when it
+// lands, extend this test rather than starting a new one.
+//
+// # ⚠️ Absolute decision levels are NOT asserted here, on purpose
+//
+// §10 numbers the root decision level 0 (per §1's parenthetical exemption) and this
+// implementation numbers it 1. That off-by-one is an open decision — the backtrack
+// floor has to be chosen to match whichever scheme wins, and §11 resolves the floor
+// only for §10's scheme. Asserting absolute levels here would silently pick the
+// winner and make this test an obstacle to the decision instead of a check on the
+// logic. So it asserts the scheme-INDEPENDENT relations instead: which assignments
+// share a level, and that a decision is exactly one level above what precedes it.
+// Both hold under either numbering. See Level's doc and issue #19464.
+func TestSection10Trace(t *testing.T) {
+	ps := newPS()
+	st := NewStore[string, set]()
+
+	// The universe. app 1.0.0 (root) needs http >=1.0.0; http 2.0.0 needs
+	// json [1.0.0,2.0.0); json 1.0.0 needs http >=2.5.0, which nothing satisfies.
+	i1 := dep("app", versionset.Exactly(v100), "http", versionset.AtLeast(v100))
+	i2 := dep("http", versionset.AtLeast(v200), "json", versionset.Range(v100, v200))
+
+	// I3's json side is POSITIVE: json is the DEPENDER here, and §3 encodes a
+	// dependency as {depender: Positive, dependee: Negative}. §10 calls this out
+	// explicitly because getting the polarity backwards is the easy mistake.
+	i3 := NewIncompatibility(KindDependency, map[string]tm{
+		"json": pos(versionset.LessThan(v200)),
+		"http": neg(versionset.AtLeast(v250)),
+	})
+
+	// --- Steps 1-3: decide the root, derive http >=1.0.0 from I1 ---
+
+	st.Add(i1)
+	ps.Decide("app", versionset.Exactly(v100))
+
+	if got, open := Classify(ps, i1); got != AlmostSatisfied || open != "http" {
+		t.Fatalf("step 3: Classify(I1) = %v open=%q, want almost satisfied open=\"http\" "+
+			"(app-term satisfied by the decision, http-term inconclusive)", got, open)
+	}
+
+	if result := Propagate(ps, st, "app"); result.HasConflict() {
+		t.Fatalf("step 3: unexpected conflict %v", result.Conflict)
+	}
+
+	// D1: "http: [1.0.0,∞)". §10 records the derivation as POSITIVE — it is the
+	// negation of I1's negative http-term, not a copy of it.
+	d1 := indexOfAssignment(t, ps, "http")
+	if got := ps.Assignments()[d1]; got.Decision {
+		t.Error("step 3: D1 must be a derivation, not a decision")
+	} else if want := pos(versionset.AtLeast(v100)); !got.Term.Equal(want) {
+		t.Errorf("step 3: D1 = %v, want %v", got.Term, want)
+	}
+	if ps.Assignments()[d1].Level != ps.Assignments()[0].Level {
+		t.Error("step 3: D1 is a consequence of the root decision, so it belongs to that " +
+			"decision's level — a derivation never raises the level")
+	}
+
+	// --- Steps 4-5: http 2.0.0 is a SAFE decision, and that is the subtle part ---
+
+	st.Add(i2)
+
+	// §10: "Committing http 2.0.0 would not yet make I2 fully satisfied (its json
+	// term is still inconclusive), so the decision is safe and is recorded." This is
+	// the §8 pre-commit check passing. It is asserted before the decision, because
+	// after the decision the answer changes and the check becomes untestable.
+	probe := newPS()
+	for _, a := range ps.Assignments() {
+		if a.Decision {
+			probe.Decide(a.Package, a.Term.Set())
+		} else {
+			probe.Derive(a.Package, a.Term, a.Cause)
+		}
+	}
+	probe.Decide("http", versionset.Exactly(v200))
+	if got, _ := Classify(probe, i2); got == FullySatisfied {
+		t.Error("step 5: committing http 2.0.0 must NOT make I2 fully satisfied — its " +
+			"json-term is inconclusive, which is what makes the decision safe")
+	}
+
+	levelBefore := ps.Level()
+	ps.Decide("http", versionset.Exactly(v200))
+	if ps.Level() != levelBefore+1 {
+		t.Errorf("step 5: a decision must raise the level by exactly 1, got %d -> %d",
+			levelBefore, ps.Level())
+	}
+
+	// --- Step 6: derive json [1.0.0,2.0.0) from I2 ---
+
+	if got, open := Classify(ps, i2); got != AlmostSatisfied || open != "json" {
+		t.Fatalf("step 6: Classify(I2) = %v open=%q, want almost satisfied open=\"json\"", got, open)
+	}
+	if result := Propagate(ps, st, "http"); result.HasConflict() {
+		t.Fatalf("step 6: unexpected conflict %v", result.Conflict)
+	}
+
+	d2 := indexOfAssignment(t, ps, "json")
+	if want := pos(versionset.Range(v100, v200)); !ps.Assignments()[d2].Term.Equal(want) {
+		t.Errorf("step 6: D2 = %v, want %v", ps.Assignments()[d2].Term, want)
+	}
+
+	httpDecision := indexOfDecision(t, ps, "http")
+	if ps.Assignments()[d2].Level != ps.Assignments()[httpDecision].Level {
+		t.Error("step 6: D2 is forced by the http decision, so it shares that decision's level")
+	}
+
+	// --- Step 7: I3 is ALREADY fully satisfied, before json is ever decided ---
+	//
+	// This is the subtlety §6 and §8 flag, and the reason the example was
+	// constructed: the conflict is discovered without any decision ever being
+	// recorded for the conflicting package. D2 alone satisfies I3's json-term
+	// ([1.0.0,2.0.0) ⊆ (-∞,2.0.0)) and the existing http 2.0.0 decision satisfies its
+	// http-term (2.0.0 ∉ [2.5.0,∞)).
+
+	if got, _ := Classify(ps, i3); got != FullySatisfied {
+		t.Fatalf("step 7: Classify(I3) = %v, want fully satisfied — D2 and the http "+
+			"decision satisfy both terms with no json decision ever recorded", got)
+	}
+	if _, decided := ps.DecisionFor("json"); decided {
+		t.Error("step 7: json must never have been decided; the conflict precedes any json decision")
+	}
+
+	// Propagation must REPORT it rather than resolve it: §7 is the caller's job.
+	st.Add(i3)
+	result := Propagate(ps, st, "json")
+	if !result.HasConflict() {
+		t.Fatal("step 7: propagation must stop and report I3 as a conflict")
+	}
+	if !result.Conflict.Equal(i3) {
+		t.Errorf("step 7: reported conflict = %v, want I3 = %v", result.Conflict, i3)
+	}
+
+	// --- Conflict resolution: the satisfier is the MAXIMUM over I3's terms ---
+	//
+	// §10: "D2 (step 6) completes the json-term on its own; the http-term was
+	// already complete earlier, at decision 5. The later of the two,
+	// chronologically, is D2 — so satisfier = D2."
+	//
+	// This is the arithmetic finding F4 was about. SatisfierOf answers the per-TERM
+	// question, so the maximum has to be taken over the incompatibility's terms; a
+	// caller that iterates terms and takes the first answer gets one chosen by Go
+	// map order, and on this very state the wrong pick is a DECISION, so §7.4's
+	// escape fires and the whole round of resolution is skipped. Pinning the maximum
+	// here is what would catch that.
+
+	satisfiers := map[string]int{}
+	for pkg, term := range i3.Terms() {
+		idx, ok := ps.SatisfierOf(pkg, term)
+		if !ok {
+			t.Fatalf("SatisfierOf(%q, %v) found none, but Classify says I3 is fully satisfied", pkg, term)
+		}
+		satisfiers[pkg] = idx
+	}
+
+	if satisfiers["json"] != d2 {
+		t.Errorf("per-term satisfier of I3's json-term = %d, want %d (D2)", satisfiers["json"], d2)
+	}
+	if satisfiers["http"] != httpDecision {
+		t.Errorf("per-term satisfier of I3's http-term = %d, want %d (the http decision)",
+			satisfiers["http"], httpDecision)
+	}
+
+	max := satisfiers["json"]
+	if satisfiers["http"] > max {
+		max = satisfiers["http"]
+	}
+	if max != d2 {
+		t.Errorf("§7.2's satisfier of I3 = max over its terms = %d, want %d (D2). §10 requires "+
+			"the LATER of the two", max, d2)
+	}
+	if ps.Assignments()[max].Decision {
+		t.Error("§7.2's satisfier of I3 must be a DERIVATION (D2), not a decision — if it " +
+			"reads as a decision, §7.4's escape fires and the required round of resolution " +
+			"never happens, silently producing a weaker solver")
+	}
+
+	// §10: previousSatisfierLevel == satisfier's level, so neither §7.4 escape holds
+	// and a prior cause must be folded in. Expressed as an equality between the two
+	// assignments' levels, since §7.2's previousSatisfier query does not exist yet.
+	if ps.Assignments()[d2].Level != ps.Assignments()[httpDecision].Level {
+		t.Error("conflict resolution: D2 and the previous satisfier (the http decision) must " +
+			"be at the SAME level, which is what forces a round of folding in a prior cause")
+	}
+}
+
+// indexOfAssignment returns the index of the single non-decision assignment about
+// pkg, failing if there is not exactly one.
+func indexOfAssignment(t *testing.T, ps *psol, pkg string) int {
+	t.Helper()
+	found := -1
+	for i, a := range ps.Assignments() {
+		if a.Package == pkg && !a.Decision {
+			if found >= 0 {
+				t.Fatalf("expected exactly one derivation about %q, found several", pkg)
+			}
+			found = i
+		}
+	}
+	if found < 0 {
+		t.Fatalf("no derivation about %q", pkg)
+	}
+	return found
+}
+
+// indexOfDecision returns the index of pkg's decision.
+func indexOfDecision(t *testing.T, ps *psol, pkg string) int {
+	t.Helper()
+	for i, a := range ps.Assignments() {
+		if a.Package == pkg && a.Decision {
+			return i
+		}
+	}
+	t.Fatalf("no decision about %q", pkg)
+	return -1
+}
