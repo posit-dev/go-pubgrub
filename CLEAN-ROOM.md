@@ -44,6 +44,25 @@ implemented in other languages. Nothing here requires reading anyone's code.
 safe to read. Treat it as one behavioral spec among several rather than as a
 translation source, and disclose it in the pull request if you consulted it.
 
+## The derivation of record
+
+[`docs/ALGORITHM.md`](docs/ALGORITHM.md) is a specification of the algorithm
+written from the permitted prose sources, carrying its own attestation of exactly
+what was read.
+
+**Implement from that document, not from the web.** This is the practical form of
+the policy: if the specification is complete enough, the implementation step needs
+no external source at all, and there is no opportunity to wander into a forbidden
+one. It also gives a reviewer something auditable — the derivation is a file in
+the repository rather than an unverifiable claim about someone's browser history.
+
+If the specification is wrong or incomplete, fix the specification from the
+permitted sources first, then implement. Do not go around it.
+
+Its §11 records the places prose did not settle the question — including one
+where the Dart document contradicts itself about the backtrack floor. Those are
+the spots that need the most test coverage.
+
 ## Controls
 
 A note asking people to be careful is not a control. These are:

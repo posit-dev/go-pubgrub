@@ -26,6 +26,31 @@ adapting with attribution is the intended pattern. Here it is forbidden. If you
 work across both in one session, do not carry context from a permitted source in
 one repo into implementation work in this one.
 
+### Implement from `docs/ALGORITHM.md`
+
+[`docs/ALGORITHM.md`](docs/ALGORITHM.md) is a specification derived from the
+permitted prose, with its own attestation of what was read. **Work from it rather
+than from the web.** If it is wrong or incomplete, fix it from the permitted
+sources first and then implement — do not go around it.
+
+Its §11 lists what prose could not settle. Two entries deserve tests before the
+solver is trusted:
+
+- **The backtrack floor when there is no previous satisfier.** The Dart document's
+  prose says decision level 1; all six of its own worked examples use level 0, and
+  one narrates backtracking "all the way to level 0" in exactly that situation.
+  The spec resolves this as **0** and says so. Needs a dedicated test for
+  under- and over-backtracking at the very first decision.
+- **The joint-satisfaction correction in conflict resolution.** Demonstrated by
+  one worked identity, not proven for every shape of range overlap. Wants
+  property-based tests: fuzz pairs of ranges and confirm the derived prior cause
+  is logically implied by its two parents.
+
+Also noted there: neither source proves the outer conflict-resolution loop
+terminates in bounded rounds for arbitrary graphs. Correctness is not in doubt,
+but a max-iteration safety valve is worth considering for production, kept
+separate from correctness.
+
 ### Specific to LLM-assisted work
 
 - **Never give an implementation agent web access.** An agent asked to
