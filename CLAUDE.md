@@ -1,17 +1,14 @@
 # go-pubgrub — Claude Code guide
 
 A language-agnostic Go implementation of the PubGrub version-solving algorithm.
-Part of [RFD 0001](https://github.com/rstudio/package-manager/blob/main/docs/rfds/0001-pypi-native-resolver/README.md),
-Phase 4.
 
-> **Status: skeleton.** Every package is a `doc.go` describing intended scope.
-> Populated by rstudio/package-manager#18653 (`term/` + `versionset/`), #18654
-> (incompatibility store + unit propagation), #18655 (backjumping + decision
-> strategy), #18656 (`report/`).
+> **Status: in progress.** `term/`, `versionset/` and most of `solver/` are
+> implemented. Conflict-driven backjumping, decision making, and `report/` are
+> not yet written.
 
-## 🔴 READ THIS FIRST: the clean-room policy binds this repository
+## 🔴 READ THIS FIRST: implement from the prose, not from another implementation
 
-[`CLEAN-ROOM.md`](CLEAN-ROOM.md) is not advisory. Before writing any solver code:
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Before writing any solver code:
 
 **Do NOT read** `pubgrub-rs/pubgrub` or `astral-sh/pubgrub` (both MPL-2.0,
 file-level copyleft), `contriboss/pubgrub-go` or any other Go PubGrub port, any
@@ -29,9 +26,9 @@ one repo into implementation work in this one.
 ### Implement from `docs/ALGORITHM.md`
 
 [`docs/ALGORITHM.md`](docs/ALGORITHM.md) is a specification derived from the
-permitted prose, with its own attestation of what was read. **Work from it rather
-than from the web.** If it is wrong or incomplete, fix it from the permitted
-sources first and then implement — do not go around it.
+permitted prose, and it lists the sources it was written from. **Work from it
+rather than from the web.** If it is wrong or incomplete, fix it from the
+permitted sources first and then implement — do not go around it.
 
 Its §11 lists what prose could not settle. Two entries deserve tests before the
 solver is trusted:
@@ -63,15 +60,15 @@ separate from correctness.
   in Go, variable names that match a published implementation, comment structure
   that mirrors another codebase.
 
-### Every pull request needs the attestation
+### Every pull request needs the confirmation ticked
 
-`.github/workflows/clean-room.yml` **fails** any pull request that changes Go
-files without a ticked attestation in the description. The box is in
+`.github/workflows/independence.yml` **fails** any pull request that changes Go
+files without the ticked confirmation in the description. The box is in
 `.github/pull_request_template.md`. Tick it only if it is true of that diff; if
-you cannot, say so and stop.
+you cannot, leave it unticked and say why.
 
 The same workflow also fails if a PubGrub implementation appears in `go.mod` or
-`go.sum` — a structural check that no attestation would catch.
+`go.sum` — the one part of this that is mechanically checkable.
 
 ## Module layout
 
@@ -148,5 +145,7 @@ The published test corpora are the point of leverage here. `astral-sh/packse`
 fixtures — and using published *fixtures* is explicitly permitted by the policy,
 unlike reading implementation source.
 
-A SAT-oracle cross-check of the whole solver is tracked as
-rstudio/package-manager#18658.
+A SAT-oracle cross-check of the whole solver is planned: generate random
+dependency universes, solve each with the solver and with a SAT solver, and assert
+they agree on satisfiability. That catches wrong answers rather than crashes,
+which is the failure mode a resolver actually has.

@@ -1,10 +1,10 @@
 # PubGrub Version-Solving Algorithm — Implementation Specification
 
-## Attestation
+## Sources
 
 This specification was written from scratch, in the author's own words, for the purpose of
 an independent Go implementation. It is based exclusively on the following prose sources,
-read directly (not summarized by a third-party model):
+read directly:
 
 - Natalie Weizenbaum, "PubGrub: Next-Generation Version Solving," Medium.
   <https://nex3.medium.com/pubgrub-2fb6470504f> (fetched and read in full as rendered
@@ -27,15 +27,9 @@ read directly (not summarized by a third-party model):
   term algebra in this document is derived from the prose description and re-derived
   independently using the identities the two sources both state.
 
-**Sources deliberately NOT read**, per the clean-room constraint: the `pubgrub-rs/pubgrub`
-crate source, the `astral-sh/pubgrub` fork, `contriboss/pubgrub-go`, any other Go/Rust/
-Ruby/Python/JS PubGrub implementation, `uv`'s resolver source, and any `pubgrub_crate/*`
-pages of the guide (which show the actual crate's public API/code samples rather than
-algorithm prose) — those pages were not fetched. The Swift Package Manager PubGrub
-implementation (the one permitted gray-area source) was **not read** for this document;
-everything below comes only from the three prose sources listed above, cross-checked
-against each other, plus original analysis (the worked example in §10 is an example the
-author constructed and hand-traced, not copied from any source).
+No PubGrub implementation source was used. Everything below comes from the three prose
+sources listed above, cross-checked against each other, plus original analysis — the worked
+example in §10 is one the author constructed and hand-traced rather than copied.
 
 Where the two design documents disagreed or a point could not be pinned down from prose
 alone, this is flagged explicitly in §11 rather than papered over.

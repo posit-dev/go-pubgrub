@@ -1,0 +1,90 @@
+name: Independence
+
+# This library implements the PubGrub algorithm from its published prose
+# descriptions rather than from another implementation's source. Two cheap checks
+# keep that property from eroding silently.
+#
+# Neither check can verify that a contributor did what they say. What they buy is
+# that the claim is explicit and recorded against a specific diff, and that the
+# one part which IS mechanically checkable -- the module graph -- is actually
+# checked.
+
+on:
+  pull_request:
+    # edited matters: without it, someone can open a PR with the box unticked,
+    # let CI pass on an empty body, then never revisit it.
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  confirmation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check the independence confirmation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Dependency bumps touch go.mod, not the algorithm, and no human is
+          # in a position to confirm on a bot's behalf.
+          case "$PR_ACTOR" in
+            dependabot|dependabot[bot]|renovate[bot])
+              echo "::notice::Skipping for automation author $PR_ACTOR."
+              exit 0
+              ;;
+          esac
+
+          changed_go="$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only | grep -c '\.go$' || true)"
+          if [ "$changed_go" -eq 0 ]; then
+            echo "::notice::No Go files changed; confirmation not required."
+            exit 0
+          fi
+          echo "$changed_go Go file(s) changed."
+
+          body="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq '.body // ""')"
+
+          # A ticked checkbox: "- [x]" or "* [X]", tolerating whitespace, but not
+          # an unticked "- [ ]".
+          ticked='^[[:space:]]*[-*][[:space:]]*\[[[:space:]]*[xX][[:space:]]*\][[:space:]]*'
+
+          if printf '%s' "$body" | grep -qiE "${ticked}This change derives from"; then
+            echo "Confirmation present."
+            exit 0
+          fi
+
+          echo "::error::The independence confirmation is not ticked."
+          echo "  Expected, ticked only if true:"
+          echo "  - [x] This change derives from docs/ALGORITHM.md and the prose sources it cites,"
+          echo "        not from another PubGrub implementation's source."
+          echo ""
+          echo "  If it does not apply to your change, leave it unticked and say why in the PR"
+          echo "  body -- then a maintainer can clear this check. See CONTRIBUTING.md."
+          exit 1
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The one part that is mechanically checkable, and it costs nothing: if
+      # another solver implementation ever enters the module graph, something has
+      # gone wrong regardless of what any PR body says.
+      - name: Assert no PubGrub implementation is a dependency
+        run: |
+          set -euo pipefail
+          if grep -nEi 'pubgrub-rs|astral-sh/pubgrub|contriboss/pubgrub' go.mod go.sum 2>/dev/null; then
+            echo "::error::A PubGrub implementation appears in this module's dependencies."
+            exit 1
+          fi
+          echo "No PubGrub implementation in go.mod or go.sum."
