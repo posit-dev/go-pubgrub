@@ -53,13 +53,27 @@ func All() Ints { return Ints{spans: []span{{minInt64, maxInt64}}} }
 // A decision pins a package to one version, which the solver represents as a
 // singleton set rather than as a separate version type. That is why the solver
 // needs no notion of an individual version at all.
+//
+// # maxInt64 is not a representable version
+//
+// Intervals here are half-open, so maxInt64 is the exclusive upper bound of the
+// universe rather than a member of it, and Exactly(maxInt64) is the EMPTY set.
+//
+// An earlier version tried to represent it as the degenerate span
+// [maxInt64, maxInt64), which produced a set reporting IsEmpty() == false while
+// Contains(maxInt64) == false — a set claiming to hold something that held
+// nothing. That broke the involution law this package declares mandatory, and it
+// is exactly the failure the Set documentation warns about: a representation
+// that is not canonical makes Equal unreliable, and the solver then fails to
+// recognize incompatibilities it has already derived.
+//
+// If a real ecosystem ever needs the full int64 range as versions, widen the
+// sentinel rather than reintroducing a degenerate span.
 func Exactly(v int64) Ints {
-	if v == maxInt64 {
-		// The universe's upper bound is exclusive everywhere else; a singleton
-		// at the maximum cannot be expressed as [v, v+1) without overflow.
-		return Ints{spans: []span{{v, maxInt64}}}
+	if v >= maxInt64 {
+		return Ints{}
 	}
-	return Ints{spans: []span{{v, v + 1}}}
+	return Ints{spans: normalize([]span{{v, v + 1}})}
 }
 
 // Range returns the half-open set [lo, hi). An empty or inverted range yields
@@ -68,11 +82,17 @@ func Range(lo, hi int64) Ints {
 	if lo >= hi {
 		return Ints{}
 	}
-	return Ints{spans: []span{{lo, hi}}}
+	return Ints{spans: normalize([]span{{lo, hi}})}
 }
 
-// AtLeast returns [lo, ∞).
-func AtLeast(lo int64) Ints { return Ints{spans: []span{{lo, maxInt64}}} }
+// AtLeast returns [lo, ∞). AtLeast(maxInt64) is empty, since maxInt64 is the
+// universe's exclusive upper bound rather than a version — see Exactly.
+func AtLeast(lo int64) Ints {
+	if lo >= maxInt64 {
+		return Ints{}
+	}
+	return Ints{spans: normalize([]span{{lo, maxInt64}})}
+}
 
 // LessThan returns (-∞, hi).
 func LessThan(hi int64) Ints {

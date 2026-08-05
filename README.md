@@ -8,13 +8,14 @@ Deliberately **language-agnostic**: it knows about versions, ranges, and
 constraints, and nothing about any particular package ecosystem. Supply an
 ordering and a set representation and it will solve for you.
 
-Part of [RFD 0001 — Native Go PyPI Dependency Resolution](https://github.com/rstudio/package-manager/blob/main/docs/rfds/0001-pypi-native-resolver/README.md),
-where it serves Python resolution via
-[`go-pyresolver`](https://github.com/posit-dev/go-pyresolver) — but it carries no
-Python-specific code, so it can serve R, Julia, or anything else.
+Its first consumer is
+[`go-pyresolver`](https://github.com/posit-dev/go-pyresolver), which supplies
+Python packaging semantics — but this module carries no Python-specific code, so
+it can serve R, Julia, or anything else.
 
-> **Status: skeleton.** Packages are populated per RFD 0001 Phase 4. Nothing here
-> is usable yet, and the module has no released version.
+> **Status: in progress.** `term/`, `versionset/` and most of `solver/` are
+> implemented. Conflict-driven backjumping, decision making, and `report/` are
+> not. Nothing here is usable yet, and the module has no released version.
 
 ## Why PubGrub
 
@@ -40,18 +41,16 @@ value.
 | `solver/` | Unit propagation, decision making, conflict-driven backjumping |
 | `report/` | Turning a failed resolution into a human explanation |
 
-## Independence
+## How this was written
 
-This is written from published prose, not translated from another
-implementation. No source from `pubgrub-rs`, `astral-sh/pubgrub`, or any other
-PubGrub implementation has been read while writing it.
-
-That is a legal property rather than a boast: `pubgrub-rs` is MPL-2.0, whose
-copyleft attaches at file level. The policy and the CI controls that enforce it
-are in [`CLEAN-ROOM.md`](CLEAN-ROOM.md) — read it before contributing.
+From the published algorithm descriptions, not translated from another
+implementation. [`docs/ALGORITHM.md`](docs/ALGORITHM.md) is the specification
+this code implements and lists the prose sources it was written from.
 
 Credit for the algorithm belongs to Natalie Weizenbaum and the Dart team, who
 published it as prose precisely so it could be implemented elsewhere.
+
+If you are contributing, please see [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Build & test
 

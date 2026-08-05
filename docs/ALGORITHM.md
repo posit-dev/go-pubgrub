@@ -1,10 +1,10 @@
 # PubGrub Version-Solving Algorithm — Implementation Specification
 
-## Attestation
+## Sources
 
 This specification was written from scratch, in the author's own words, for the purpose of
 an independent Go implementation. It is based exclusively on the following prose sources,
-read directly (not summarized by a third-party model):
+read directly:
 
 - Natalie Weizenbaum, "PubGrub: Next-Generation Version Solving," Medium.
   <https://nex3.medium.com/pubgrub-2fb6470504f> (fetched and read in full as rendered
@@ -27,15 +27,9 @@ read directly (not summarized by a third-party model):
   term algebra in this document is derived from the prose description and re-derived
   independently using the identities the two sources both state.
 
-**Sources deliberately NOT read**, per the clean-room constraint: the `pubgrub-rs/pubgrub`
-crate source, the `astral-sh/pubgrub` fork, `contriboss/pubgrub-go`, any other Go/Rust/
-Ruby/Python/JS PubGrub implementation, `uv`'s resolver source, and any `pubgrub_crate/*`
-pages of the guide (which show the actual crate's public API/code samples rather than
-algorithm prose) — those pages were not fetched. The Swift Package Manager PubGrub
-implementation (the one permitted gray-area source) was **not read** for this document;
-everything below comes only from the three prose sources listed above, cross-checked
-against each other, plus original analysis (the worked example in §10 is an example the
-author constructed and hand-traced, not copied from any source).
+No PubGrub implementation source was used. Everything below comes from the three prose
+sources listed above, cross-checked against each other, plus original analysis — the worked
+example in §10 is one the author constructed and hand-traced rather than copied.
 
 Where the two design documents disagreed or a point could not be pinned down from prose
 alone, this is flagged explicitly in §11 rather than papered over.
@@ -927,3 +921,26 @@ implementation needs the most care and the most test coverage.
    principles in either source, and is worth keeping in mind if the Go implementation ever
    needs to reason about worst-case behavior (e.g., guarding against pathological inputs
    with a max-iteration safety valve in production, separate from correctness).
+8. **THIS DOCUMENT CONTRADICTS ITSELF about what an unassigned package entails, and §2.5
+   is the half that is wrong.** Added 2026-08-04 after an independent correctness review
+   of the solver found it; it is a defect in this specification, not in the code.
+
+   §2.5's truth table states that with nothing asserted about a package, a *negative* term
+   is **satisfied**, on the reasoning that absence makes every negative term true. But §10's
+   worked trace contradicts that at steps 3, 4-5 and 6, all of which treat an unassigned
+   package as **inconclusive** for a negative term — and §6's unit propagation collapses
+   entirely without the inconclusive reading, because a dependency incompatibility is
+   `{depender: Positive, dependee: Negative}`, so a satisfied-by-absence negative term makes
+   every dependency classify as *fully* satisfied the moment the depender is selected. Every
+   dependency would be reported as a conflict and nothing would ever resolve.
+
+   **The resolution is that §2.5's row describes a term's truth in a COMPLETED world, while
+   the partial solution's relation asks what the assignments so far ENTAIL.** Those are
+   different questions. An unassigned package is undecided, not known-absent: a version could
+   still be decided later, which would make a negative term false. So the partial solution
+   entails nothing about it, for either polarity.
+
+   This was found the hard way — the implementation followed §2.5 literally first, broke every
+   dependency derivation, and failed six propagation tests before being corrected. §2.5's
+   table should be read as being about worlds, and a sentence saying so belongs in §2.5
+   itself. Until that is written, prefer §10's behavior wherever the two disagree.

@@ -229,15 +229,53 @@ func TestConstructors(t *testing.T) {
 	}
 }
 
-// TestExactlyAtUpperBound covers the one place the reference implementation has
-// to special-case, since [v, v+1) would overflow.
-func TestExactlyAtUpperBound(t *testing.T) {
-	s := Exactly(maxInt64)
-	if s.IsEmpty() {
-		t.Fatal("Exactly(maxInt64) must not be empty")
+// TestUpperBoundIsNotAVersion pins that maxInt64 is the universe's exclusive
+// upper bound rather than a member of it.
+//
+// This replaces a test that asserted the OPPOSITE and was wrong. It checked that
+// Exactly(maxInt64) was non-empty and did not contain maxInt64-1 — both true of
+// the buggy implementation — but never asked whether it contained maxInt64
+// itself. It did not. So the set reported IsEmpty() == false while holding
+// nothing, which violated the involution law this package declares mandatory.
+//
+// The lesson is the one that keeps recurring here: a test written from the same
+// understanding as the implementation will agree with it. Assert the LAW, not the
+// behavior you expect the code to have.
+func TestUpperBoundIsNotAVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  Ints
+	}{
+		{"Exactly(maxInt64)", Exactly(maxInt64)},
+		{"AtLeast(maxInt64)", AtLeast(maxInt64)},
+	} {
+		if !tc.set.IsEmpty() {
+			t.Errorf("%s: IsEmpty() = false, want true", tc.name)
+		}
+		if !tc.set.Equal(Empty()) {
+			t.Errorf("%s: must equal the empty set", tc.name)
+		}
+		if tc.set.Contains(maxInt64) {
+			t.Errorf("%s: must not contain maxInt64", tc.name)
+		}
+		// The law that the old test's subject broke.
+		if !tc.set.Complement().Complement().Equal(tc.set) {
+			t.Errorf("%s: involution violated", tc.name)
+		}
 	}
-	if s.Contains(maxInt64 - 1) {
-		t.Error("Exactly(maxInt64) must not contain maxInt64-1")
+
+	// A set must never claim to be non-empty while containing nothing. That is
+	// the precise shape of the defect, so state it directly.
+	for _, v := range []int64{maxInt64, maxInt64 - 1, 0, minInt64} {
+		s := Exactly(v)
+		if !s.IsEmpty() && !s.Contains(v) {
+			t.Errorf("Exactly(%d) reports non-empty but does not contain %d", v, v)
+		}
+	}
+
+	// The version just below the bound is still representable.
+	if !Exactly(maxInt64 - 1).Contains(maxInt64 - 1) {
+		t.Error("maxInt64-1 must remain a representable version")
 	}
 }
 
