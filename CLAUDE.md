@@ -2,9 +2,9 @@
 
 A language-agnostic Go implementation of the PubGrub version-solving algorithm.
 
-> **Status: in progress.** `term/`, `versionset/` and most of `solver/` are
-> implemented. Conflict-driven backjumping, decision making, and `report/` are
-> not yet written.
+> **Status: in progress.** `term/`, `versionset/` and `solver/` are implemented,
+> including unit propagation, decision making (§8), the main loop (§5) and
+> conflict-driven backjumping (§7). `report/` (§9) is not yet written.
 
 ## 🔴 READ THIS FIRST: implement from the prose, not from another implementation
 
@@ -30,23 +30,31 @@ permitted prose, and it lists the sources it was written from. **Work from it
 rather than from the web.** If it is wrong or incomplete, fix it from the
 permitted sources first and then implement — do not go around it.
 
-Its §11 lists what prose could not settle. Two entries deserve tests before the
-solver is trusted:
+Its §11 lists what prose could not settle, and now records how each open point
+was resolved when §7 and §8 landed. Two of them carried tests the solver should
+not be trusted without, and both now exist:
 
-- **The backtrack floor when there is no previous satisfier.** The Dart document's
-  prose says decision level 1; all six of its own worked examples use level 0, and
-  one narrates backtracking "all the way to level 0" in exactly that situation.
-  The spec resolves this as **0** and says so. Needs a dedicated test for
-  under- and over-backtracking at the very first decision.
-- **The joint-satisfaction correction in conflict resolution.** Demonstrated by
-  one worked identity, not proven for every shape of range overlap. Wants
-  property-based tests: fuzz pairs of ranges and confirm the derived prior cause
-  is logically implied by its two parents.
+- **The backtrack floor when there is no previous satisfier**
+  (`TestResolveBacktracksToTheRootDecision`, plus
+  `TestResolveWithNoDecisionsKeepsResolving`). ⚠️ The floor is **scheme-specific**
+  and §11's resolved value of 0 is for §10's level numbering, not this code's.
+  This code upholds §1's main sentence, so the root decision is at level 1 and the
+  floor must be 1. `baseLevel` reads it off the partial solution rather than
+  hard-coding either, which also handles the case before any decision exists —
+  where a constant 1 escapes conflict resolution with a truncation that removes
+  nothing, and the main loop spins.
+- **The joint-satisfaction correction in conflict resolution**
+  (`TestPriorCauseIsImpliedByItsParents` fuzzes pairs of incompatibilities and
+  checks the derived prior cause against every world over the packages involved).
+  Note what that turned up: §7.3's step-3 condition is an *optimization*, not a
+  correctness condition, since the term it skips would be dropped by
+  normalization anyway. `TestPriorCauseStep3GuardMatchesNormalization` pins the
+  equivalence.
 
 Also noted there: neither source proves the outer conflict-resolution loop
-terminates in bounded rounds for arbitrary graphs. Correctness is not in doubt,
-but a max-iteration safety valve is worth considering for production, kept
-separate from correctness.
+terminates in bounded rounds for arbitrary graphs. `Solver.MaxRounds` is the
+safety valve, off by default, and returns an ordinary error rather than an
+unsolvability proof.
 
 ### Specific to LLM-assisted work
 

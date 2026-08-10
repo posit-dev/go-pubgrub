@@ -54,11 +54,22 @@ func (s Satisfaction) String() string {
 func Classify[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], inc *Incompatibility[P, S],
 ) (Satisfaction, P) {
+	return classify(inc, ps.Relation)
+}
+
+// classify is Classify over any source of relations, so that §8's pre-commit
+// check can ask the same question of a hypothetical decision without restating
+// the rules. Two copies of this decision procedure would be free to disagree, and
+// a disagreement between "what propagation thinks" and "what decision making
+// thinks" is the kind that produces a wrong answer rather than an error.
+func classify[P comparable, S versionset.Set[S]](
+	inc *Incompatibility[P, S], relation func(P, term.Term[S]) term.Relation,
+) (Satisfaction, P) {
 	var unsatisfied P
 	inconclusive := 0
 
 	for pkg, t := range inc.terms {
-		switch ps.Relation(pkg, t) {
+		switch relation(pkg, t) {
 		case term.Contradicted:
 			// One term can never hold, so the conjunction cannot either.
 			var zero P

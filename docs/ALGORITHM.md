@@ -870,6 +870,26 @@ implementation needs the most care and the most test coverage.
    sentence, and used 0 throughout §10's trace — but this is this document's judgment call,
    not a fact both sources agree on, and it deserves a dedicated property/unit test in the
    Go implementation (verify no under- or over-backtracking at the very first decision).
+
+   **Resolved in the implementation (§7, 2026-08-10).** The floor is not portable between
+   level-numbering schemes, and the number above is only correct for the scheme this
+   document's §10 uses (root decision exempt, so the root sits at level 0). The Go
+   implementation upholds §1's *main* sentence instead — a level is the number of decisions
+   at or before that point, so the root decision lands at level 1 — and therefore needs
+   floor **1**, not 0. Pairing §10's numbering with floor 1, or this numbering with floor 0,
+   are the two mispairings, and they fail differently: too low over-backtracks (wasteful,
+   still converges, so nothing fails loudly), too high under-backtracks, leaves the conflict
+   fully satisfied, violates §7.1's first guarantee and lets the main loop spin.
+
+   Rather than hard-code either number, the implementation reads the floor off the partial
+   solution: the level of the first decision, or the current level when nothing has been
+   decided. That is 0 under §10's scheme and 1 under the implementation's, so the two cannot
+   drift apart. It also fixes a case a constant gets wrong regardless of scheme: **before any
+   decision exists**, a hard-coded 1 makes previousSatisfierLevel differ from the satisfier's
+   level, so §7.4's second escape fires and performs a truncation that removes nothing — the
+   conflict comes back still satisfied and the loop spins. Reading the floor gives 0 there,
+   the levels match, and resolution correctly keeps folding in causes until it reaches the
+   terminal empty incompatibility.
 2. **The exact decision-making tie-breaking heuristic is explicitly left open by the
    source itself.** "Fewest matching versions, then highest version" is stated as *"a
    heuristic... there's likely room for improvement,"* not a specification. Neither source
@@ -880,6 +900,15 @@ implementation needs the most care and the most test coverage.
    different (still correct) solver traces and different sets of packages surfaced first
    in an error — this affects UX quality, not correctness, but is worth pinning down
    deliberately rather than by accident of map/slice iteration order.
+
+   **Resolved in the implementation (§8, 2026-08-10).** Fewest candidates first, and on an
+   exact tie the package whose **first positive derivation came earliest** wins. The count is
+   what the provider reports for the versions still allowed by the accumulated term, so it
+   does account for versions already ruled out rather than being "fewest ever published".
+   What is being bought is determinism: the eligible packages are walked in the partial
+   solution's chronological order, so neither the choice nor the package named first in an
+   error can vary between runs on identical input, which is what iterating a map would have
+   allowed.
 3. **The precise general form of the "joint satisfaction" correction in conflict
    resolution (§7.3 step 3) is given by the Dart source only via one worked identity and a
    single illustrative note**, not a fully worked proof covering every shape of range
@@ -889,6 +918,23 @@ implementation needs the most care and the most test coverage.
    implementation should back this specific step with property-based tests (e.g., fuzz
    pairs of ranges and confirm the derived prior cause is logically implied by its two
    parents) rather than trusting a single hand-traced example to have covered every edge.
+
+   **Backed by property tests, and one thing the prose does not say (§7.3, 2026-08-10).**
+   The suggested property test exists: pairs of incompatibilities are fuzzed and the derived
+   prior cause is checked against every world over the packages involved — each package
+   either absent or at one of a few versions — asserting that any world violating the derived
+   incompatibility violates at least one parent.
+
+   The step-3 condition turns out to be an **optimization, not a correctness condition**,
+   which neither source says. "The satisfier satisfies `term`" is by definition "satisfier ∧
+   ¬term is always false", and the combined term step 3 would add is the negation of exactly
+   that expression — so whenever the condition says to skip, the term skipped is
+   `Negative(∅)`, which §3's normalization drops anyway. Adding it unconditionally computes
+   the same incompatibility. This was found by mutating the implementation to fire step 3
+   unconditionally and observing that every test still passed, including §10's trace; it
+   looked like a coverage gap and is in fact this identity. The implementation keeps the
+   condition, because it states §7.3's own distinction where a reader will look for it, and
+   pins the equivalence with a test so the two cannot drift.
 4. **Whether the initial root-package fact is best modeled as one incompatibility or two**
    is phrased slightly differently between sources (a bare negative fact "root must be
    exactly its one version" versus an incompatibility tying a root decision to the root's
@@ -921,7 +967,40 @@ implementation needs the most care and the most test coverage.
    principles in either source, and is worth keeping in mind if the Go implementation ever
    needs to reason about worst-case behavior (e.g., guarding against pathological inputs
    with a max-iteration safety valve in production, separate from correctness).
-8. **THIS DOCUMENT CONTRADICTS ITSELF about what an unassigned package entails, and §2.5
+
+   **Implemented as an opt-in valve (§5, 2026-08-10).** The main loop takes a maximum number
+   of propagate/decide rounds, off by default, and returns an ordinary error — not an
+   unsolvability proof — when it is hit. Deliberately not on by default: a bound low enough to
+   catch a pathological input would also reject legitimately large ones, and reporting "gave
+   up" as "no solution exists" would be a lie about the input.
+8. **§4's success criterion is not sufficient on its own, and §6 cannot make it so.** Added
+   2026-08-10 while implementing §7 and §8; like item 9 below, it is a gap in this
+   specification rather than a deviation by the code.
+
+   An incompatibility of two or more terms, **all negative**, says "a is in x *or* b is in
+   y". With neither package assigned, §2.5's partial-solution relation is Inconclusive for
+   every one of its terms forever — correctly, per item 9 — so it is never almost satisfied,
+   unit propagation never fires on it, and no package gains a positive derivation from it.
+   §4's criterion ("every package with a positive derivation has a matching decision") then
+   reports a solution omitting both packages as a **success**, while that solution violates
+   the incompatibility. Single-term negative incompatibilities are fine: the root fact is one,
+   and it fires as almost satisfied and seeds §5 exactly as intended.
+
+   Whether §7.3 can actually synthesize such a shape from reachable inputs is **still open**.
+   External facts hold at most one negative term each (a dependency's negative term is about
+   the dependee; unavailability facts hold none), and resolution drops the satisfier's own
+   package from both parents — but step 3 can put a *negative* term back for that package
+   (`¬(S \ T)` with `S` and `T` both positive is `Negative(s \ t)`), which alongside a negative
+   term inherited from a parent would give two. No end-to-end reachable trace producing one was
+   constructed, so this is a shape the rules do not obviously forbid rather than one shown to
+   arise.
+
+   The implementation does not wait for that question. Before returning a solution it checks
+   the whole incompatibility set against the chosen versions in **completed-world** semantics —
+   where absence makes a negative term true and a positive term false, unlike §2.5's
+   partial-solution relation — and returns an error rather than a solution if any is violated.
+   One pass over the store, and it converts a silently wrong answer into a loud one.
+9. **THIS DOCUMENT CONTRADICTS ITSELF about what an unassigned package entails, and §2.5
    is the half that is wrong.** Added 2026-08-04 after an independent correctness review
    of the solver found it; it is a defect in this specification, not in the code.
 
