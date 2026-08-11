@@ -13,9 +13,12 @@ Its first consumer is
 Python packaging semantics — but this module carries no Python-specific code, so
 it can serve R, Julia, or anything else.
 
-> **Status: in progress.** `term/`, `versionset/` and most of `solver/` are
-> implemented. Conflict-driven backjumping, decision making, and `report/` are
-> not. Nothing here is usable yet, and the module has no released version.
+> **Status: in progress.** `term/`, `versionset/` and `solver/` are implemented,
+> including unit propagation, decision making, and conflict-driven backjumping.
+> `report/` — turning a failed resolution into a human explanation — is not
+> written yet, so a failed solve currently hands back the root-cause
+> incompatibility and its derivation graph rather than prose. The module has no
+> released version.
 
 ## Why PubGrub
 

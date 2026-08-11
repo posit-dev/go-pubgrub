@@ -22,6 +22,11 @@ type (
 func pos(s set) tm { return term.Positive(s) }
 func neg(s set) tm { return term.Negative(s) }
 
+// pt pairs a package with a term, for the inputs a map cannot express.
+func pt(pkg string, t tm) PackageTerm[string, set] {
+	return PackageTerm[string, set]{Package: pkg, Term: t}
+}
+
 // dep builds "a in ra depends on b in rb", the encoding from the specification:
 // a positive term on the depender and a NEGATIVE term on the dependee.
 func dep(a string, ra set, b string, rb set) *inc {
@@ -35,21 +40,91 @@ func newPS() *psol { return NewPartialSolution[string, set]() }
 
 // --- Incompatibility ---
 
+// TestIncompatibilityNormalizesDuplicatePackages pins §3's per-package
+// normalization on the constructor that can actually express the input.
+//
+// A map cannot hold two terms for one package, so the intersection branch that
+// used to live in NewIncompatibility was unreachable — and its doc comment
+// promised a normalization that could not happen. §7.3's resolution step is where
+// two terms about one package genuinely arise, so it needs a constructor whose
+// signature can carry them, and this is the law that constructor upholds.
 func TestIncompatibilityNormalizesDuplicatePackages(t *testing.T) {
-	// Two terms about one package must be intersected into one.
-	i := NewIncompatibility(KindDependency, map[string]tm{"a": pos(versionset.Range(1, 5))})
-	// A map cannot hold two entries for one key, so build the collision by
-	// intersecting explicitly and confirm the invariant holds either way.
-	if i.Len() != 1 {
-		t.Fatalf("Len = %d, want 1", i.Len())
+	i := NewIncompatibilityFrom(KindDependency,
+		pt("a", pos(versionset.AtLeast(1))),
+		pt("a", pos(versionset.LessThan(5))),
+		pt("b", neg(versionset.Exactly(9))),
+	)
+
+	if i.Len() != 2 {
+		t.Fatalf("Len = %d, want 2 (the two terms about a must merge into one)", i.Len())
 	}
 
 	got, ok := i.Term("a")
 	if !ok {
 		t.Fatal("term for a missing")
 	}
-	if !got.Set().Equal(versionset.Range(1, 5)) {
-		t.Errorf("term set = %v", got.Set())
+	if !got.IsPositive() || !got.Set().Equal(versionset.Range(1, 5)) {
+		t.Errorf("merged term for a = %v, want positive [1,5)", got)
+	}
+}
+
+// TestIncompatibilityFromMergesToAlwaysFalse pins the outcome §2.4 calls out:
+// intersecting two disjoint positive constraints on one package yields
+// Positive(∅), which makes the incompatibility inert rather than unsatisfiable.
+// It is a legitimate result of merging, not an error, and the distinction matters
+// because an inert incompatibility must never fire while an EMPTY one means the
+// problem has no solution.
+func TestIncompatibilityFromMergesToAlwaysFalse(t *testing.T) {
+	i := NewIncompatibilityFrom(KindDerived,
+		pt("a", pos(versionset.Range(1, 2))),
+		pt("a", pos(versionset.Range(5, 6))),
+	)
+
+	if i.IsEmpty() {
+		t.Error("merging to an always-false term must not empty the incompatibility: " +
+			"an empty one means no solution exists, which this does not say")
+	}
+	if !i.IsInert() {
+		t.Error("an incompatibility whose merged term is Positive(∅) is inert")
+	}
+}
+
+// TestIncompatibilityFromTreatsAlwaysTrueAsTheIdentity pins what §3's two
+// normalizations actually mean when they meet: an always-true term contributes
+// nothing to a conjunction, so merging with one must leave the other term
+// untouched, and one standing alone must disappear.
+//
+// This test started out asserting that the ORDER of the two normalizations was
+// load-bearing — drop-then-merge would supposedly delete a real constraint. It is
+// not: intersecting with Negative(∅) is the identity in every polarity
+// combination, and merging can only produce an always-true term out of always-true
+// inputs, so the two orders compute the same thing. Mutating the code to drop
+// first left the test passing, which is how the false premise surfaced. What is
+// pinned here is the identity, which is true and is what the constructor relies on.
+func TestIncompatibilityFromTreatsAlwaysTrueAsTheIdentity(t *testing.T) {
+	alwaysTrue := neg(versionset.Empty())
+
+	for _, other := range []tm{
+		pos(versionset.Exactly(3)),
+		neg(versionset.AtLeast(3)),
+		pos(versionset.Empty()), // always false: still the identity's argument
+	} {
+		merged := NewIncompatibilityFrom(KindDerived, pt("a", alwaysTrue), pt("a", other))
+		reversed := NewIncompatibilityFrom(KindDerived, pt("a", other), pt("a", alwaysTrue))
+		alone := NewIncompatibilityFrom(KindDerived, pt("a", other))
+
+		if !merged.Equal(alone) {
+			t.Errorf("merging %v with an always-true term gave %v, want %v: an always-true "+
+				"term contributes nothing to a conjunction", other, merged, alone)
+		}
+		if !reversed.Equal(alone) {
+			t.Errorf("the identity must hold in both orders, got %v for %v", reversed, other)
+		}
+	}
+
+	// And an always-true term standing alone is dropped entirely.
+	if !NewIncompatibilityFrom(KindDerived, pt("a", alwaysTrue)).IsEmpty() {
+		t.Error("an incompatibility of nothing but always-true terms reduces to the empty one")
 	}
 }
 
@@ -104,9 +179,9 @@ func TestIncompatibilityEqualIgnoresCauses(t *testing.T) {
 	}
 
 	// Same terms, but derived from causes. Still the same fact.
-	derived := newDerived(map[string]tm{
-		"a": pos(versionset.Exactly(1)),
-		"b": neg(versionset.AtLeast(2)),
+	derived := newDerived([]PackageTerm[string, set]{
+		pt("a", pos(versionset.Exactly(1))),
+		pt("b", neg(versionset.AtLeast(2))),
 	}, a, b)
 	if !derived.Equal(a) {
 		t.Error("Equal must compare terms only, not provenance")
@@ -129,7 +204,7 @@ func TestIncompatibilityCauses(t *testing.T) {
 		t.Error("an external incompatibility has no causes")
 	}
 
-	d := newDerived(map[string]tm{"a": pos(versionset.Exactly(1))}, a, b)
+	d := newDerived([]PackageTerm[string, set]{pt("a", pos(versionset.Exactly(1)))}, a, b)
 	ca, cb, derived := d.Causes()
 	if !derived {
 		t.Fatal("a derived incompatibility must report its causes")
@@ -309,7 +384,7 @@ func TestBacktrackToNegativeClampsToZero(t *testing.T) {
 	}
 }
 
-func TestSatisfierOf(t *testing.T) {
+func TestFirstIndexSatisfying(t *testing.T) {
 	ps := newPS()
 	ps.Derive("a", pos(versionset.AtLeast(1)), nil)   // index 0
 	ps.Derive("b", pos(versionset.AtLeast(1)), nil)   // index 1
@@ -317,7 +392,7 @@ func TestSatisfierOf(t *testing.T) {
 
 	// Nothing about a satisfies "a in [1,10)" until index 2, where the
 	// accumulation becomes narrow enough.
-	idx, ok := ps.SatisfierOf("a", pos(versionset.Range(1, 10)))
+	idx, ok := ps.FirstIndexSatisfying("a", pos(versionset.Range(1, 10)))
 	if !ok {
 		t.Fatal("expected a satisfier")
 	}
@@ -325,11 +400,28 @@ func TestSatisfierOf(t *testing.T) {
 		t.Errorf("satisfier index = %d, want 2", idx)
 	}
 
-	if _, ok := ps.SatisfierOf("a", pos(versionset.Exactly(50))); ok {
+	if _, ok := ps.FirstIndexSatisfying("a", pos(versionset.Exactly(50))); ok {
 		t.Error("a term the solution never satisfies must report false")
 	}
-	if _, ok := ps.SatisfierOf("never-mentioned", pos(versionset.Exactly(1))); ok {
+	if _, ok := ps.FirstIndexSatisfying("never-mentioned", pos(versionset.Exactly(1))); ok {
 		t.Error("an unmentioned package has no satisfier")
+	}
+}
+
+// TestFirstIndexSatisfyingIgnoresOtherPackages pins the per-package filter, which
+// nothing tested: deleting it — a plausible misreading of §7.2's "earliest
+// assignment in the partial solution" — passed the whole suite.
+//
+// Terms about different packages constrain different packages. Intersecting them
+// makes an assignment about b able to "satisfy" a term about a, which then points
+// the satisfier at an assignment that has nothing to do with the conflict.
+func TestFirstIndexSatisfyingIgnoresOtherPackages(t *testing.T) {
+	ps := newPS()
+	ps.Derive("b", pos(versionset.Exactly(5)), nil)
+
+	if idx, ok := ps.FirstIndexSatisfying("a", pos(versionset.AtLeast(1))); ok {
+		t.Errorf("index %d satisfies a term about a, but only b has been assigned; "+
+			"assignments about other packages must not be folded in", idx)
 	}
 }
 
@@ -855,7 +947,7 @@ func TestIsDerivedFollowsCausesNotKind(t *testing.T) {
 		t.Error("IsDerived() is true for an incompatibility with no causes; §9 would walk it as a leaf")
 	}
 
-	real := newDerived(map[string]tm{"a": pos(versionset.Exactly(1))},
+	real := newDerived([]PackageTerm[string, set]{pt("a", pos(versionset.Exactly(1)))},
 		dep("a", versionset.Exactly(1), "b", versionset.Exactly(1)),
 		dep("b", versionset.Exactly(1), "c", versionset.Exactly(1)))
 	if !real.IsDerived() {
@@ -886,23 +978,24 @@ const (
 // bug. §10 is the one artifact in the project that states, independently and
 // concretely, what the answers are supposed to be.
 //
-// # What it covers, and what it deliberately does not
+// # What it covers
 //
-// Steps 1-7 are propagation and classification, which exist. The satisfier
-// arithmetic in the conflict-resolution section is checked as far as today's API
-// allows. Steps 8-10 need §7's conflict resolution, which is not written; when it
-// lands, extend this test rather than starting a new one.
+// Steps 1-7 are propagation and classification. Steps 8-10 are conflict
+// resolution: the satisfier arithmetic, the round of folding in a prior cause,
+// the exact derived incompatibility I4, and the backjump — asserted through
+// Resolve rather than reconstructed by hand. TestSolveSection10 then runs the same
+// universe end to end through the main loop and checks it reaches §10's final
+// answer.
 //
 // # ⚠️ Absolute decision levels are NOT asserted here, on purpose
 //
 // §10 numbers the root decision level 0 (per §1's parenthetical exemption) and this
-// implementation numbers it 1. That off-by-one is an open decision — the backtrack
-// floor has to be chosen to match whichever scheme wins, and §11 resolves the floor
-// only for §10's scheme. Asserting absolute levels here would silently pick the
-// winner and make this test an obstacle to the decision instead of a check on the
-// logic. So it asserts the scheme-INDEPENDENT relations instead: which assignments
-// share a level, and that a decision is exactly one level above what precedes it.
-// Both hold under either numbering. See Level's doc and issue #19464.
+// implementation numbers it 1, upholding §1's main sentence instead. Asserting
+// absolute levels here would pin the scheme rather than the logic, so this asserts
+// the scheme-INDEPENDENT relations: which assignments share a level, that a
+// decision is exactly one level above what precedes it, and — for the backjump —
+// which assignments survive it. All hold under either numbering. See Level and
+// baseLevel for the scheme and the floor that has to match it.
 func TestSection10Trace(t *testing.T) {
 	ps := newPS()
 	st := NewStore[string, set]()
@@ -1027,50 +1120,141 @@ func TestSection10Trace(t *testing.T) {
 	// already complete earlier, at decision 5. The later of the two,
 	// chronologically, is D2 — so satisfier = D2."
 	//
-	// This is the arithmetic finding F4 was about. SatisfierOf answers the per-TERM
-	// question, so the maximum has to be taken over the incompatibility's terms; a
-	// caller that iterates terms and takes the first answer gets one chosen by Go
-	// map order, and on this very state the wrong pick is a DECISION, so §7.4's
-	// escape fires and the whole round of resolution is skipped. Pinning the maximum
-	// here is what would catch that.
+	// The per-term satisfiers are checked individually first, because that is where
+	// the arithmetic can go wrong quietly: taking whichever term Go's map iteration
+	// yields first would pick the http DECISION here, §7.4's escape would fire, and
+	// the round of resolution that produces the generalization would be skipped.
 
-	satisfiers := map[string]int{}
-	for pkg, term := range i3.Terms() {
-		idx, ok := ps.SatisfierOf(pkg, term)
+	for pkg, want := range map[string]int{"json": d2, "http": httpDecision} {
+		term, _ := i3.Term(pkg)
+		idx, ok := ps.FirstIndexSatisfying(pkg, term)
 		if !ok {
-			t.Fatalf("SatisfierOf(%q, %v) found none, but Classify says I3 is fully satisfied", pkg, term)
+			t.Fatalf("FirstIndexSatisfying(%q, %v) found none, but Classify says I3 is fully satisfied", pkg, term)
 		}
-		satisfiers[pkg] = idx
+		if idx != want {
+			t.Errorf("per-term satisfier of I3's %s-term = %d, want %d", pkg, idx, want)
+		}
 	}
 
-	if satisfiers["json"] != d2 {
-		t.Errorf("per-term satisfier of I3's json-term = %d, want %d (D2)", satisfiers["json"], d2)
+	satisfier, satisfierPkg, ok := ps.SatisfierOf(i3)
+	if !ok {
+		t.Fatal("SatisfierOf(I3) found none, but Classify says I3 is fully satisfied")
 	}
-	if satisfiers["http"] != httpDecision {
-		t.Errorf("per-term satisfier of I3's http-term = %d, want %d (the http decision)",
-			satisfiers["http"], httpDecision)
+	if satisfier != d2 || satisfierPkg != "json" {
+		t.Errorf("§7.2's satisfier of I3 = index %d about %q, want %d about \"json\" (D2) — "+
+			"§10 requires the LATER of the two per-term satisfiers", satisfier, satisfierPkg, d2)
 	}
-
-	max := satisfiers["json"]
-	if satisfiers["http"] > max {
-		max = satisfiers["http"]
-	}
-	if max != d2 {
-		t.Errorf("§7.2's satisfier of I3 = max over its terms = %d, want %d (D2). §10 requires "+
-			"the LATER of the two", max, d2)
-	}
-	if ps.Assignments()[max].Decision {
+	if ps.Assignments()[satisfier].Decision {
 		t.Error("§7.2's satisfier of I3 must be a DERIVATION (D2), not a decision — if it " +
 			"reads as a decision, §7.4's escape fires and the required round of resolution " +
 			"never happens, silently producing a weaker solver")
 	}
 
+	// §10: "Previous satisfier: the earliest assignment before D2 such that
+	// (prefix + D2) satisfies I3 — that's exactly decision 5 (http 2.0.0), which
+	// supplied the other term." Note it is not about the satisfier's own package.
+	previous, hasPrevious := ps.PreviousSatisfierOf(i3, satisfier)
+	if !hasPrevious {
+		t.Fatal("I3's satisfier needs the http decision to supply the other term, so a " +
+			"previous satisfier exists")
+	}
+	if previous != httpDecision {
+		t.Errorf("§7.2's previous satisfier of I3 = index %d, want %d (the http 2.0.0 decision)",
+			previous, httpDecision)
+	}
+
 	// §10: previousSatisfierLevel == satisfier's level, so neither §7.4 escape holds
-	// and a prior cause must be folded in. Expressed as an equality between the two
-	// assignments' levels, since §7.2's previousSatisfier query does not exist yet.
-	if ps.Assignments()[d2].Level != ps.Assignments()[httpDecision].Level {
+	// and a prior cause must be folded in.
+	if ps.Assignments()[previous].Level != ps.Assignments()[satisfier].Level {
 		t.Error("conflict resolution: D2 and the previous satisfier (the http decision) must " +
 			"be at the SAME level, which is what forces a round of folding in a prior cause")
+	}
+
+	// --- Step 8: the round of resolution derives I4 = {http: [2.0.0,2.5.0)} ---
+	//
+	// §10 works this out term by term: dropping the json-term from both I3 and I2
+	// leaves http ¬[2.5.0,∞) and http [2.0.0,∞); D2 satisfied its term by itself so
+	// §7.3 step 3 is skipped; and intersecting the two http terms gives
+	// Positive([2.0.0,2.5.0)). Both parents speak about http, which is exactly the
+	// per-package merge a map-shaped constructor cannot express.
+
+	incTerm, _ := i3.Term(satisfierPkg)
+	i4 := priorCause(i3, i2, satisfierPkg, ps.Assignments()[satisfier].Term, incTerm)
+
+	want := NewIncompatibility(KindDerived, map[string]tm{"http": pos(versionset.Range(v200, v250))})
+	if !i4.Equal(want) {
+		t.Errorf("step 8: prior cause = %v, want %v", i4, want)
+	}
+	if _, ok := i4.Term("json"); ok {
+		t.Error("step 8: the satisfier's own package must be dropped from both sides")
+	}
+	if a, b, derived := i4.Causes(); !derived || a != i3 || b != i2 {
+		t.Error("step 8: the derived incompatibility must record I3 and I2 as its causes, " +
+			"or §9 cannot walk back to the facts that forced the failure")
+	}
+
+	// --- Steps 8-9: Resolve does the whole thing, and backjumps past a decision ---
+
+	appDecision := indexOfDecision(t, ps, "app")
+	survivors := ps.Len() - 2 // everything except the http decision and D2
+
+	resolution, err := Resolve(ps, st, "app", i3)
+	if err != nil {
+		t.Fatalf("Resolve returned an error: %v", err)
+	}
+	if resolution.Unsolvable {
+		t.Fatal("§10's conflict is resolvable: it ends in a solution, not a proof of failure")
+	}
+	if !resolution.Incompatibility.Equal(want) {
+		t.Errorf("Resolve returned %v, want I4 = %v", resolution.Incompatibility, want)
+	}
+	if resolution.Package != "http" {
+		t.Errorf("Resolve says to resume on %q, want \"http\" — I4's only term", resolution.Package)
+	}
+
+	// §10: "Truncate the partial solution to remove everything above level 0 — this
+	// discards decision 5 (http 2.0.0) and derivation D2 (json) entirely." Asserted
+	// as which assignments survive, which is true under either numbering scheme.
+	if ps.Len() != survivors {
+		t.Errorf("after the backjump: %d assignments, want %d (the http decision and D2 discarded)",
+			ps.Len(), survivors)
+	}
+	if _, decided := ps.DecisionFor("http"); decided {
+		t.Error("the backjump must discard the http 2.0.0 decision: it is the guess that failed")
+	}
+	if _, ok := ps.Accumulated("json"); ok {
+		t.Error("the backjump must discard D2, which was derived under the discarded decision")
+	}
+	if ps.Assignments()[appDecision].Package != "app" || !ps.Assignments()[appDecision].Decision {
+		t.Error("the backjump must NOT discard the root decision: backtracking below the root's " +
+			"level throws away work that has to be immediately re-derived")
+	}
+	if _, ok := ps.Accumulated("http"); !ok {
+		t.Error("D1 (http >=1.0.0) sits at the root decision's level and must survive")
+	}
+
+	// §7.1's guarantee 1, which is the whole point of cutting at a level boundary:
+	// what comes back is ALMOST satisfied, so propagation has exactly one thing to
+	// derive. Still fully satisfied would mean the same conflict immediately again.
+	if satisfaction, open := Classify(ps, resolution.Incompatibility); satisfaction != AlmostSatisfied || open != "http" {
+		t.Errorf("after the backjump, I4 classifies as %v (open %q), want almost satisfied about "+
+			"http — §7.1's first guarantee", satisfaction, open)
+	}
+
+	// §7.4 adds the replacement to the known set, since it is not the original
+	// input. Without that, the generalization is derived and thrown away.
+	if len(st.Mentioning("http")) < 4 {
+		t.Error("I4 must be added to the store: it is the generalization the round of " +
+			"resolution existed to produce")
+	}
+	found := false
+	for _, inc := range st.All() {
+		if inc.Equal(want) {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("the store does not contain I4")
 	}
 }
 
