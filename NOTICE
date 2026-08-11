@@ -16,8 +16,8 @@ This implementation is written from that published prose. NO SOURCE FROM ANY
 OTHER PUBGRUB IMPLEMENTATION IS INCORPORATED, and none has been read while
 writing it. In particular this is not a port or a derivative of
 pubgrub-rs/pubgrub, astral-sh/pubgrub, or any Go-language PubGrub
-implementation. See CLEAN-ROOM.md for the policy and the controls that enforce
-it.
+implementation. See CONTRIBUTING.md for the policy, and
+.github/workflows/independence.yml for the controls that enforce it.
 
 That statement is deliberate and load-bearing: pubgrub-rs and its forks are
 licensed under the Mozilla Public License 2.0, whose file-level copyleft would
