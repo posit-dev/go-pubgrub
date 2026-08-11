@@ -10,7 +10,7 @@ This library implements the PubGrub algorithm from its published prose descripti
 Paste the result of the provenance audit — it is a fact about this change, not a promise:
 
 ```
-.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/<branch>%' --paths '%/scratchpad/gpb/%'
+.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/<branch>%'
 ```
 
 > Verdict: <PASS | REVIEW | NO COVERAGE> · lineage: <n> sessions · log covers: <date> onward
@@ -18,6 +18,9 @@ Paste the result of the provenance audit — it is a fact about this change, not
 <!--
 NO COVERAGE is not a pass; it means the audit could not answer. Usually the --paths pattern
 matched nothing. Widen it rather than reporting it as clean.
+
+Check the authoring-session list the audit prints. If it names a session that did not work on
+this change, --paths is too broad and the lineage is inflated.
 
 A PASS is a statement about process: what was opened, fetched and searched. It is not a
 statement about what a model's weights encode, and nothing you can tick here would be.

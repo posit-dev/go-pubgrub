@@ -26,7 +26,7 @@ local steps replaced it.
 **Before merging any change to Go files**, run the provenance audit:
 
 ```bash
-.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/<branch>%' --paths '%/scratchpad/gpb/%'
+.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/<branch>%'
 ```
 
 It answers a narrow, checkable question — did the sessions that wrote this change ever retrieve
