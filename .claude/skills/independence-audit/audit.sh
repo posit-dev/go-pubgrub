@@ -207,6 +207,20 @@ CROSS="$(retrieval_query "$CROSS_INPUT" "$CROSS_FILE")"
 COUNTS="$LINEAGE
 select (select count(*) from authoring), (select count(*) from lineage);"
 
+# Which sessions were treated as authoring, and on what evidence. Print this
+# always: an over-broad --paths pattern silently widens the lineage, and a
+# spurious session is only visible if you can see what it matched. A global
+# scratchpad pattern will pull in any session that ever drafted this library's
+# code anywhere, whether or not it touched the branch under audit.
+WHO="$LINEAGE
+select a.s, count(distinct tc.file_path), min(m.timestamp), max(m.timestamp)
+  from authoring a
+  left join tool_calls tc on tc.session_id = a.s
+       and tc.tool_name in ('Write','Edit','NotebookEdit')
+       and lower(coalesce(tc.file_path,'')) like '%.go' and $PATHPRED
+  left join messages m on m.id = tc.message_id
+ group by a.s order by 3;"
+
 COVERAGE="select coalesce(min(started_at),'-'), coalesce(max(started_at),'-'), count(*) from sessions;"
 
 # Informational only: spawn prompts that NAME a reference. Not a violation --
@@ -242,6 +256,20 @@ predate the log, or they were pruned. Check the coverage window above against
 when the code was written, and widen --paths to include scratchpad locations.
 EOF
 	exit 3
+fi
+
+echo "Authoring sessions, and the files each matched:"
+sqlite3 -separator '  ' "$DB" "$WHO" | sed 's/^/  /'
+echo
+if [ "$AUTHORING_N" -gt 1 ]; then
+	cat <<'EOF'
+More than one authoring session. Check that each really contributed to the
+change under audit. A session listed here that you do not recognise usually
+means --paths is too broad -- most often a global scratchpad pattern, which
+matches any session that ever drafted this library's code anywhere. Every
+session listed drags its whole tree into the lineage.
+
+EOF
 fi
 
 MENTION_OUT="$(sqlite3 -separator '  ' "$DB" "$MENTIONS" || true)"

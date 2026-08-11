@@ -33,18 +33,38 @@ code. Say it that way when you report it.
 ```
 
 The pattern matches the absolute path of files that were written. Use the
-worktree the branch was developed in, and **always add the scratchpad pattern** —
-code gets drafted under `/private/tmp/.../scratchpad/` and a sweep that misses it
-will report a clean lineage that never existed:
+worktree the branch was developed in:
 
 ```bash
-.claude/skills/independence-audit/audit.sh \
-  --paths '%gpb-worktrees/18655-backjumping%' \
-  --paths '%/scratchpad/gpb/%'
+.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/18655-backjumping%'
 ```
 
 Add `--session <id>` when you know the authoring session id. The path sweep is a
 heuristic and the declared id is author-supplied; each covers the other's gap.
+
+### The scratchpad trap, in both directions
+
+Code does get drafted under `/private/tmp/.../<session-id>/scratchpad/`, and a
+sweep that misses it can report a clean lineage that never existed. But the
+scratchpad path is **not branch-scoped**, so a global pattern like
+`--paths '%/scratchpad/gpb/%'` sweeps in every session that ever drafted this
+library's code anywhere — including sessions with no connection to the change
+under audit. Each one drags its entire tree into the lineage.
+
+That is not hypothetical. On the `#18655` branch, adding that global pattern took
+the lineage from 15 sessions to 37 and flipped the verdict from `PASS` to
+`REVIEW` purely by false attribution.
+
+Scope it to the session instead, once the worktree sweep has told you which
+session that is:
+
+```bash
+--paths '%/376f3ee6-d928-4bec-b385-54a1b8690dc9/scratchpad/%'
+```
+
+The audit prints every session it treated as authoring, with the file count and
+time range each matched. **Read that list.** A session you do not recognise means
+the pattern is too broad.
 
 `AGENTSVIEW_DB` overrides the log location (default `~/.agentsview/sessions.db`).
 
@@ -122,8 +142,7 @@ behaving, the audit is broken and its verdicts are worthless:
 # 49 retrievals across six implementations.
 .claude/skills/independence-audit/audit.sh \
   --paths '%gpb-worktrees/incompat-propagation%' \
-  --paths '%gpb-worktrees/term-versionset%' \
-  --paths '%/scratchpad/gpb/%'
+  --paths '%gpb-worktrees/term-versionset%'
 ```
 
 A detector with no negative control is worthless: one that always says `REVIEW`

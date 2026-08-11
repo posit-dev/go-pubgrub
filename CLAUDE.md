@@ -65,16 +65,18 @@ separate from correctness.
 Run it before merging any change to Go files:
 
 ```bash
-.claude/skills/independence-audit/audit.sh \
-  --paths '%gpb-worktrees/<branch>%' --paths '%/scratchpad/gpb/%'
+.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/<branch>%'
 ```
 
 Exit 0 is `PASS`, 2 is `REVIEW`, **3 is `NO COVERAGE` and is not a pass**. Put the
 verdict in the pull request. Full instructions live in the skill.
 
-Always include the scratchpad pattern. Code gets drafted under
-`/private/tmp/.../scratchpad/`, and a sweep that misses it reports a clean lineage
-that never existed.
+**Do not add a global scratchpad pattern.** `%/scratchpad/gpb/%` is not
+branch-scoped and sweeps in every session that ever drafted this library's code
+anywhere; on `#18655` it took the lineage from 15 sessions to 37 and flipped the
+verdict by false attribution. If drafting happened in a scratchpad, scope it to
+that session: `%/<session-id>/scratchpad/%`. Read the authoring-session list the
+audit prints.
 
 There is no longer a CI gate for this. Requiring a ticked box in the pull request
 description asked the author to gate the author, and an agent wanting a green
