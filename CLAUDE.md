@@ -87,6 +87,12 @@ machine can actually know.
 **Do not run `independence-deep-review` in a session that touches this code.** It
 reads reference source. It is for a dedicated throwaway session.
 
+⚠️ **If a session has seen a similarity finding, close it — do not keep working
+in it.** Context compaction summarises, so that content can survive into the
+summary invisibly after the original messages are gone. "It scrolled out of
+context" is not a remedy; ending the session is. Remediation always starts fresh
+and is briefed with the task only, never the reason.
+
 ## Module layout
 
 | Package | Scope |
