@@ -20,6 +20,31 @@ permissions:
   contents: read
 
 jobs:
+  # A similarity review report asserting resemblance to copyleft code must never
+  # enter this repository. Publishing one would create a discoverable record
+  # arguing the opposite of what NOTICE defends.
+  #
+  # This is not hypothetical. On 2026-08-04 a review artifact was committed into
+  # a branch's working tree and removed again before merge; it never reached
+  # reachable history, but nothing stopped it. Reports now go to a path outside
+  # every repository, and this check enforces that they stay there.
+  no-review-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assert no similarity-review report is committed
+        run: |
+          set -euo pipefail
+          # -z + read -d '' so a path containing whitespace cannot split.
+          found=0
+          while IFS= read -r -d '' f; do
+            echo "::error file=$f::Similarity-review reports must not be committed. Write to ~/independence-reviews/ instead; see .claude/skills/independence-deep-review."
+            found=1
+          done < <(git ls-files -z '*contamination-review*' '*independence-review*' '*similarity-review*')
+          [ "$found" -eq 0 ] || exit 1
+          echo "No similarity-review report in the tree."
+
   dependencies:
     runs-on: ubuntu-latest
     steps:

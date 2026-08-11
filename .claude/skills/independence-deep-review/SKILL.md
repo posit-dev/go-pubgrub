@@ -97,6 +97,22 @@ the shared ancestor, and that is the whole point of having written it.
 Reference implementations are listed in
 [`../independence-audit/references.txt`](../independence-audit/references.txt).
 
+## ⚠️ Context compaction defeats "it has scrolled out of context"
+
+A long session compacts. Compaction *summarises* — so resemblance detail a reviewer put in
+chat can survive into the summary in condensed form, silently, long after the original
+messages are gone. You cannot inspect what it kept, and you will not be told it happened.
+
+Two consequences, both load-bearing:
+
+- **A session that has received a resemblance report is contaminated until it is closed.**
+  Waiting for the detail to age out is not a remedy. Closing the session is the only reliable
+  one.
+- **Keep the deep review short.** The longer it runs, the more likely it compacts, and a
+  compacted review session carries reference content forward into anything else you do in it.
+
+This is why the report goes to a file and the chat gets only counts.
+
 ## Remediation is a separate session, and it is not told why
 
 If something must change, **do not fix it here**, and do not write a prompt that
