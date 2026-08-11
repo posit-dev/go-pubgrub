@@ -60,15 +60,30 @@ separate from correctness.
   in Go, variable names that match a published implementation, comment structure
   that mirrors another codebase.
 
-### Every pull request needs the confirmation ticked
+### Every pull request needs a provenance audit
 
-`.github/workflows/independence.yml` **fails** any pull request that changes Go
-files without the ticked confirmation in the description. The box is in
-`.github/pull_request_template.md`. Tick it only if it is true of that diff; if
-you cannot, leave it unticked and say why.
+Run it before merging any change to Go files:
 
-The same workflow also fails if a PubGrub implementation appears in `go.mod` or
-`go.sum` — the one part of this that is mechanically checkable.
+```bash
+.claude/skills/independence-audit/audit.sh \
+  --paths '%gpb-worktrees/<branch>%' --paths '%/scratchpad/gpb/%'
+```
+
+Exit 0 is `PASS`, 2 is `REVIEW`, **3 is `NO COVERAGE` and is not a pass**. Put the
+verdict in the pull request. Full instructions live in the skill.
+
+Always include the scratchpad pattern. Code gets drafted under
+`/private/tmp/.../scratchpad/`, and a sweep that misses it reports a clean lineage
+that never existed.
+
+There is no longer a CI gate for this. Requiring a ticked box in the pull request
+description asked the author to gate the author, and an agent wanting a green
+build ticked it. `.github/workflows/independence.yml` still fails if a PubGrub
+implementation appears in `go.mod` or `go.sum` — the one part of this that a
+machine can actually know.
+
+**Do not run `independence-deep-review` in a session that touches this code.** It
+reads reference source. It is for a dedicated throwaway session.
 
 ## Module layout
 

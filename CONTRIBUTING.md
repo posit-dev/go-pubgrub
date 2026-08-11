@@ -16,6 +16,39 @@ question entirely.
 The dependency check in CI enforces the part that can be checked mechanically: the module graph
 must stay free of other solver implementations.
 
+## How independence is checked
+
+CI cannot check this. It once tried, by requiring a ticked checkbox in the pull request
+description — but the description is written by the author, so the check asked the author to
+gate the author. An agent that wanted a green build simply ticked it. That gate is gone; two
+local steps replaced it.
+
+**Before merging any change to Go files**, run the provenance audit:
+
+```bash
+.claude/skills/independence-audit/audit.sh --paths '%gpb-worktrees/<branch>%' --paths '%/scratchpad/gpb/%'
+```
+
+It answers a narrow, checkable question — did the sessions that wrote this change ever retrieve
+source from a known PubGrub implementation? — from this project's own agent activity log. It
+never opens a reference implementation, so it is safe to run anywhere. Report the verdict in the
+pull request.
+
+**Before cutting a tag**, or after the audit reports `REVIEW`, run the deep review
+(`.claude/skills/independence-deep-review`). That one compares this code against other
+implementations, so it must read them, so it runs in a dedicated throwaway session that never
+writes this library. Its output never goes in a repository, a pull request, or an issue.
+
+Both skills document their own rules. The short version: the contaminating step happens rarely,
+deliberately, and never in a session that writes code.
+
+### What a passing audit does and does not say
+
+It is a statement about **process** — what was opened, fetched and searched. It is not a
+statement about what a model's weights encode, and no checkbox, human or otherwise, can be.
+Claims in this repository are worded to match what is actually checkable, and should stay
+that way.
+
 ## Where the specification and the code disagree
 
 Prefer the specification, and then fix the specification if it turns out to be wrong.

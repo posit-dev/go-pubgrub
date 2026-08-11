@@ -1,0 +1,74 @@
+# Sources this library must not read, and the permitted prose that must not be
+# mistaken for them.
+#
+# Format: one SQL LIKE pattern per line, matched case-insensitively against
+# tool-call inputs and file paths.
+#   plain line   FORBIDDEN. A retrieval matching it is a finding.
+#   !  prefix    PERMITTED. Subtracted from the above; never a finding.
+#   ?  prefix    CROSS-REPO RISK. Permitted in go-pyresolver and
+#                go-python-packaging, forbidden here. Reported separately.
+#   #  prefix    comment
+#
+# Keep in sync with CONTRIBUTING.md and CLAUDE.md. This list is inherently
+# incomplete: PASS means "no KNOWN reference was retrieved", never "this code is
+# independent".
+#
+# The allowlist is load-bearing, not a convenience. docs/ALGORITHM.md is written
+# FROM the Dart prose and the guide's prose pages, so an audit that flags them
+# cries wolf on the exact sources the policy tells you to use -- and a detector
+# that cries wolf gets ignored.
+
+# ---------------------------------------------------------------- FORBIDDEN --
+# Rust implementations. Both MPL-2.0, whose file-level copyleft would attach.
+%pubgrub-rs/pubgrub%
+%astral-sh/pubgrub%
+
+# uv's PubGrub fork and the resolver crate built on it.
+%uv-resolver%
+
+# Go ports. Not license-blocked in every case, but independent derivation is the
+# property being kept, and a Go port is the most direct translation risk.
+%contriboss/pubgrub%
+%mircearoata/pubgrub%
+%thani-ath-nain/pubgrub%
+%pubgrub-go%
+
+# The Dart original's SOLVER SOURCE. Its prose is permitted; see the allowlist.
+%dart-lang/pub/blob/%lib/src/solver%
+%dart-lang/pub/raw/%lib/src/solver%
+%pub/lib/src/solver%
+
+# A local clone or scratch copy of any of the above, which no repo-slug pattern
+# would catch -- e.g. a Read of /tmp/scratch/targets/prs/incompatibility.rs.
+%/targets/prs/%
+%/targets/cbgo/%
+%/targets/mgo/%
+%incompatibility.rs%
+%partial_solution.rs%
+%small_map.rs%
+%small_vec.rs%
+%arena.rs%
+
+# ---------------------------------------------------------------- PERMITTED --
+# The published prose docs/ALGORITHM.md is derived from. Reading these is the
+# intended workflow.
+!%dart-lang/pub/blob/%/doc/%
+!%dart-lang/pub/raw/%/doc/%
+!%medium.com/@nex3%
+!%pubgrub-rs-guide%
+# Published test corpora are explicitly permitted, unlike implementation source.
+!%astral-sh/packse%
+
+# ---------------------------------------------------------- CROSS-REPO RISK --
+# CLAUDE.md: "In go-pyresolver and go-python-packaging, reading uv's crates is
+# explicitly encouraged... Here it is forbidden. If you work across both in one
+# session, do not carry context from a permitted source in one repo into
+# implementation work in this one."
+#
+# A single session tree routinely does both, so these fire often and are NOT
+# violations on their own. They mark a session where that prohibition was live.
+#
+# Scoped to uv deliberately. pypa/packaging is NOT listed: it is PEP 440, and
+# this library is forbidden to know about any packaging ecosystem, so it cannot
+# contaminate a solver. Listing it produced only noise.
+?%astral-sh/uv%
