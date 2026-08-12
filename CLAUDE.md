@@ -2,9 +2,9 @@
 
 A language-agnostic Go implementation of the PubGrub version-solving algorithm.
 
-> **Status: in progress.** `term/`, `versionset/` and `solver/` are implemented,
-> including unit propagation, decision making (§8), the main loop (§5) and
-> conflict-driven backjumping (§7). `report/` (§9) is not yet written.
+> **Status: in progress.** `term/`, `versionset/`, `solver/` and `report/` are
+> implemented, including unit propagation, decision making (§8), the main loop
+> (§5), conflict-driven backjumping (§7) and error reporting (§9).
 
 ## 🔴 READ THIS FIRST: implement from the prose, not from another implementation
 
@@ -130,6 +130,23 @@ bugs; merging the layers makes both harder to isolate.
 **Error reporting is a feature, not a nicety.** The derivation graph is much of
 why PubGrub is worth implementing. Keep `report/` separate from `solver/` so the
 message format can change without touching the algorithm.
+
+### Two things to know before touching `report/`
+
+**Its fixtures cannot be hand-built, and that is on purpose.** `newDerived` is
+unexported, so nothing outside `solver/` can fabricate a derived incompatibility.
+Every graph `report/` is tested against therefore comes from a real solve driven to
+failure. Resist the urge to export a test-only constructor to make a shape easier
+to reach — the constraint is what keeps the tests honest about graphs the solver
+actually produces.
+
+**§9's line-numbering case is rare and search-found.** A proof in which one
+*derived* incompatibility is a cause of two others turns up in roughly 1 failing
+universe in 700; none of the hand-written fixtures produce it. `reusedUniverse` in
+`report/fixtures_test.go` does, and its apparently pointless packages are
+load-bearing: they change which package decision making picks first, and deleting
+them destroys the shape. `TestShapeOfEachFixture` exists to catch exactly that, so
+if you edit a fixture, believe that test over the goldens.
 
 ## Build & test
 
