@@ -13,10 +13,11 @@ Its first consumer is
 Python packaging semantics — but this module carries no Python-specific code, so
 it can serve R, Julia, or anything else.
 
-> **Status: in progress.** `term/`, `versionset/`, `solver/` and `report/` are
-> implemented — unit propagation, decision making, conflict-driven backjumping,
-> and rendering a failed solve's derivation graph as prose. The module has no
-> released version.
+> **Status: `v0.1.0`.** The algorithm is complete — `term/`, `versionset/`, `solver/`
+> and `report/` cover unit propagation, decision making, conflict-driven
+> backjumping, and rendering a failed solve's derivation graph as prose. Pre-1.0:
+> the API may still change, and while the major version is `0` a breaking change
+> ships in a minor bump. See [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Why PubGrub
 

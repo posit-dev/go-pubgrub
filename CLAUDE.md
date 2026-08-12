@@ -2,9 +2,12 @@
 
 A language-agnostic Go implementation of the PubGrub version-solving algorithm.
 
-> **Status: in progress.** `term/`, `versionset/`, `solver/` and `report/` are
-> implemented, including unit propagation, decision making (§8), the main loop
-> (§5), conflict-driven backjumping (§7) and error reporting (§9).
+> **Status: `v0.1.0`.** `term/`, `versionset/`, `solver/` and `report/` are all
+> implemented — unit propagation, decision making (§8), the main loop (§5),
+> conflict-driven backjumping (§7) and error reporting (§9). Pre-1.0, so a breaking
+> change ships in a **minor** bump; record it under `Breaking` in
+> [`CHANGELOG.md`](CHANGELOG.md). ⚠️ Date the release section BEFORE tagging — never
+> tag a commit whose changelog still says `[Unreleased]`.
 
 ## 🔴 READ THIS FIRST: implement from the prose, not from another implementation
 
