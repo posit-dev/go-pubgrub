@@ -87,6 +87,14 @@ func requires(pkg string, allowed set) dep {
 	return dep{Package: pkg, Allowed: allowed}
 }
 
+// spanning is a dependency shared by every version of the depender in depender, which
+// is §8's collapsing of adjacent versions with identical requirements. It is how an
+// incompatibility comes to hold a POSITIVE term over an unbounded range, and so the only
+// way "every version of X depends on ..." is ever produced.
+func spanning(pkg string, allowed, depender set) dep {
+	return dep{Package: pkg, Allowed: allowed, Depender: depender}
+}
+
 var _ solver.Provider[string, set] = (*universe)(nil)
 
 // mustFail solves u for the given root and returns the root-cause
@@ -94,9 +102,26 @@ var _ solver.Provider[string, set] = (*universe)(nil)
 // needs it to.
 func mustFail(t *testing.T, u *universe, root string, version int64) *solver.Incompatibility[string, set] {
 	t.Helper()
+	return mustFailWithFacts(t, u, root, version)
+}
+
+// mustFailWithFacts is mustFail plus caller-seeded external facts, added to the store
+// before solving.
+//
+// This is how an adapter states things the Provider interface cannot express — a yanked
+// release, a platform-incompatible wheel — and it is the only way to get a
+// KindUnavailable fact into a proof, since the solver never builds one itself.
+func mustFailWithFacts(
+	t *testing.T, u *universe, root string, version int64,
+	facts ...*solver.Incompatibility[string, set],
+) *solver.Incompatibility[string, set] {
+	t.Helper()
 
 	s := solver.New[string, set](root, versionset.Exactly(version), u)
 	s.MaxRounds = 1000
+	for _, fact := range facts {
+		s.Store().Add(fact)
+	}
 
 	sol, err := s.Solve()
 	if err == nil {

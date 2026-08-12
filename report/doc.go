@@ -9,7 +9,16 @@
 // that graph can be rendered as a chain of reasoning rather than as "no solution
 // found".
 //
-// The rendering is deliberately separate from the solving so that the message
-// format can change without touching the algorithm, and so a caller can walk the
-// graph itself to produce its own presentation.
+// The rendering is deliberately separate from the solving so that the message format
+// can change without touching the algorithm.
+//
+// Start at [FromError], or at [Explain] if you already hold the root cause. The walk
+// they perform implements §9 of docs/ALGORITHM.md, which every "§" in this package
+// refers to.
+//
+// A consumer wanting its own presentation should read the [Line] values rather than
+// re-walking the derivation graph, because §9's ordering and line-numbering rules are
+// the hard part and there is no reason to reimplement them. Each Line carries the
+// incompatibility it states, so the packages and version ranges behind a sentence are
+// reachable without parsing the sentence.
 package report

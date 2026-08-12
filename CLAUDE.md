@@ -140,13 +140,27 @@ failure. Resist the urge to export a test-only constructor to make a shape easie
 to reach — the constraint is what keeps the tests honest about graphs the solver
 actually produces.
 
-**§9's line-numbering case is rare and search-found.** A proof in which one
-*derived* incompatibility is a cause of two others turns up in roughly 1 failing
-universe in 700; none of the hand-written fixtures produce it. `reusedUniverse` in
-`report/fixtures_test.go` does, and its apparently pointless packages are
-load-bearing: they change which package decision making picks first, and deleting
-them destroys the shape. `TestShapeOfEachFixture` exists to catch exactly that, so
-if you edit a fixture, believe that test over the goldens.
+**§9's line-numbering case is rare and search-found.** A proof in which one *derived*
+incompatibility is a cause of two others is hard to provoke: a randomized search over
+**500,000 generated universes produced 19** of them, and none of the hand-written
+fixtures produce one at all. `reusedUniverse` in `report/fixtures_test.go` does, and
+its apparently pointless packages are load-bearing: they change which package decision
+making picks first, and deleting them destroys the shape. `TestShapeOfEachFixture`
+exists to catch exactly that, so if you edit a fixture, believe that test over the
+goldens.
+
+**Test the phraser directly, not only through solves.** `NewIncompatibility` is
+exported, so any EXTERNAL fact is hand-buildable and every phrasing branch reachable
+from a leaf can go in a table — `report/phrase_test.go`. Only *derived* nodes need a
+real solve. Routing every phrasing test through a solve is what let a sentence meaning
+the opposite of its fact ship unnoticed: the solver only ever builds three of the five
+`Kind`s, and none of the fixtures contained an unbounded range.
+
+**Polarity decides the wording, not just the emphasis.** An all-encompassing range on a
+POSITIVE term means "every version of X"; on a NEGATIVE term it means "any version will
+do", which is how an unconstrained requirement (`Requires-Dist: foo`) is encoded.
+Rendering the negative case as "depends on every version of foo" states something
+impossible. `report/phrase.go`'s `describe` takes the whole term for this reason.
 
 ## Build & test
 
