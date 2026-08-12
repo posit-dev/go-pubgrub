@@ -28,12 +28,18 @@ conflict-driven backjumping, and error reporting.
   propagation, decision making, and conflict-driven backjumping. `Solve` returns
   either a `Solution` or an `*Unsolvable` carrying the root-cause incompatibility.
 
-  Two details worth knowing when reading a trace: the backtrack floor when there is
-  no previous satisfier is decision level **0**, which is what the primary source's
-  own worked examples do rather than what its prose says; and a solution is verified
-  against the whole incompatibility set before being returned, because the published
-  success criterion cannot see an all-negative incompatibility whose packages are
-  both unassigned.
+  Two details worth knowing when reading a trace. First, the backtrack floor when
+  there is no previous satisfier is **read off the partial solution** rather than
+  hard-coded: it is the level of the first decision, or the current level when no
+  decision has been made yet. ⚠️ Note the level numbering here starts the first
+  decision at **1**, while the primary source's worked examples number that same
+  decision **0** — so the floor this code computes as `1` is the one those examples
+  call `0`. They agree on behaviour ("keep the root decision, discard everything
+  above it") and differ only in where counting starts.
+
+  Second, a solution is verified against the whole incompatibility set before being
+  returned, because the published success criterion cannot see an all-negative
+  incompatibility whose packages are both unassigned.
 
   `MaxRounds` bounds the outer loop. Neither prose source proves it terminates in
   bounded rounds for arbitrary graphs, so a caller facing untrusted input has
