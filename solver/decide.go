@@ -31,6 +31,10 @@ type Provider[P comparable, S versionset.Set[S]] interface {
 	//
 	// # found is the correctness-bearing answer, and it is an EXISTENCE question
 	//
+	// allowed is always non-empty: propagation cannot empty an accumulated term, for
+	// the reason PartialSolution.Decide documents, so an implementation does not need
+	// a case for it. (Returning found == false if one ever arrives is harmless.)
+	//
 	// found must be false exactly when no version of pkg can be used within
 	// allowed — including the case where a version exists but its metadata cannot
 	// be fetched, which §8 models identically to the version not existing. The
@@ -62,8 +66,21 @@ type Provider[P comparable, S versionset.Set[S]] interface {
 	//
 	// It is a hint in the strict sense: the solver only ever compares one rank
 	// against another and never reads it as a quantity. Nothing requires it to be a
-	// count, an upper bound, or non-negative. It also must not cost I/O that
-	// answering found did not already require.
+	// count, an upper bound, or non-negative.
+	//
+	// ⚠️ It must be DETERMINISTIC: the same (pkg, allowed) must yield the same rank
+	// within a solve. The solver's guarantee that neither its choices nor the package
+	// named first in an error vary between runs on identical input is only as good as
+	// this, and "hint" must not be read as licence to vary it. Deriving it from
+	// anything ambient — a clock, a map iteration, an unseeded hash — silently voids
+	// that guarantee.
+	//
+	// It should also not cost I/O that answering found did not already require. If an
+	// index answers existence cheaply but can only count by enumerating, do NOT
+	// enumerate: prefer any cheap deterministic proxy that correlates with how
+	// constrained the package is — the number of versions in range before filtering,
+	// the size of the range, even a bucketed estimate. All of those beat both an
+	// enumeration and a constant.
 	//
 	// Counting the versions in allowed BEFORE testing usability is the intended
 	// implementation — free, since that list has to exist anyway, and on everything
@@ -214,6 +231,16 @@ func MakeDecision[P comparable, S versionset.Set[S]](
 	//
 	// Eligible is still asked, because it also rejects the empty set, which
 	// IsSubsetOf accepts: ∅ is a subset of everything.
+	//
+	// The empty case gets its own message. "Outside the allowed set" is true of ∅ only
+	// in a lawyerly sense and sends a provider author looking for a range problem,
+	// when what they have is a found/best disagreement: found said something is
+	// available and best names nothing.
+	if best.IsEmpty() {
+		return zero, fmt.Errorf(
+			"solver: provider reported %s available but offered no version; found and best disagree",
+			formatPackage(pkg))
+	}
 	if !ps.Eligible(pkg, best) || !versionset.IsSubsetOf(best, allowed) {
 		return zero, fmt.Errorf("solver: provider offered %s %v, which is outside the allowed set %v",
 			formatPackage(pkg), best, allowed)

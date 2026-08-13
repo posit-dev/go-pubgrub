@@ -580,6 +580,41 @@ func TestMakeDecisionUnavailableTieBreakIsChronological(t *testing.T) {
 	}
 }
 
+// TestMakeDecisionRejectsAnEmptyBestWithItsOwnMessage pins the diagnostic added
+// alongside the containment guard.
+//
+// ∅ passes IsSubsetOf — it is a subset of everything — so it is ps.Eligible that
+// rejects it, and before this it shared the containment message. "Outside the
+// allowed set" is true of ∅ only lawyerly and points a provider author at a range
+// problem they do not have; the actual fault is that found said something is
+// available and best names nothing. The message is the whole feature here, so the
+// message is what this asserts.
+func TestMakeDecisionRejectsAnEmptyBestWithItsOwnMessage(t *testing.T) {
+	ps := newPS()
+	st := NewStore[string, set]()
+
+	// A version IS in range, so the fixture reports found = true; offerSet then
+	// overrides best with the empty set. That is the found/best disagreement.
+	u := newUniverse().with("a", 1).with("a", 2)
+	u.offerSet = map[string]set{"a": versionset.Empty()}
+
+	ps.Derive("a", pos(versionset.AtLeast(1)), nil)
+
+	_, err := MakeDecision(ps, st, u)
+	if err == nil {
+		t.Fatal("a best of ∅ must be refused: ps.Decide panics on it, and the empty set is " +
+			"not a version any decision can record")
+	}
+	if !strings.Contains(err.Error(), "found and best disagree") {
+		t.Errorf("err = %v, want it to name the found/best disagreement rather than the "+
+			"containment failure, which is what sends a provider author looking for a range "+
+			"problem that is not there", err)
+	}
+	if _, decided := ps.DecisionFor("a"); decided {
+		t.Error("no decision may be recorded for a refused candidate")
+	}
+}
+
 // TestMakeDecisionRejectsARangeOverlappingTheAllowedSet pins the containment half of
 // the best check.
 //
