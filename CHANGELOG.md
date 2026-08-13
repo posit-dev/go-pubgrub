@@ -9,6 +9,8 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-13
+
 ### Breaking
 
 - `solver.Provider.Candidates` now returns `(best S, found bool, rank int, err error)`
