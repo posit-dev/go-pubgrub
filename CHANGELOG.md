@@ -9,6 +9,38 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Changed
+
+- `Provider.Candidates`' contract now states three things it left to inference, all
+  found by a review of the published API rather than by a failure:
+
+  - `rank` must be **deterministic** for the same `(pkg, allowed)` within a solve.
+    `docs/ALGORITHM.md` promises that neither the solver's choices nor the package
+    named first in an error vary between runs on identical input, and that promise is
+    only as good as this. Calling `rank` a "hint" was being left to read as licence to
+    vary it.
+  - The prohibition on `rank` costing I/O is now a **should** with guidance. As a
+    "must not" it forbade the only sensible option for a provider whose index answers
+    existence cheaply but can only count by enumerating, while the next paragraph
+    disparaged the sole remaining alternative.
+  - `allowed` is documented as always non-empty, which propagation guarantees, so an
+    implementation does not need to guess whether it needs that case.
+
+- A `best` of ∅ now gets its own error naming the `found`/`best` disagreement, rather
+  than being reported as "outside the allowed set" — true of ∅ only in a lawyerly
+  sense, and it sent a provider author hunting for a range problem.
+
+### Notes
+
+- The 0.2.0 migration recipe (`found: count > 0`, `rank: count`) is behaviour-identical
+  for the **ordering**, which is what it was about, but 0.2.0 also tightened
+  `MakeDecision` to require `best` to be contained in `allowed` rather than merely
+  overlapping it. A provider that had been returning a non-singleton `best` overlapping
+  the accumulated term compiled and ran at 0.1.0 and errors now. That was listed under
+  0.2.0's `Fixed`, but the migration note did not cross-reference it, so anyone who
+  followed the recipe and then hit `"outside the allowed set"` had been told the upgrade
+  preserved behaviour.
+
 ## [0.2.0] - 2026-08-13
 
 ### Breaking
