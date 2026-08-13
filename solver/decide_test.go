@@ -387,6 +387,234 @@ func TestMakeDecisionPropagatesProviderErrors(t *testing.T) {
 	}
 }
 
+// TestMakeDecisionPrefersUnavailabilityOverEveryAvailablePackage pins the ordering
+// that the found/rank split had to make explicit.
+//
+// Before the split, unavailability was a count of zero, and zero is the numeric
+// minimum — so an unavailable package won the heuristic comparison for free, and
+// MakeDecision reached its unavailability case on the first round in which any
+// eligible package had nothing available. With a separate boolean that is no longer
+// automatic.
+//
+// # Why this is worth a test of its own
+//
+// Losing it does not produce a wrong answer, which is exactly why it needs
+// pinning. The solve would still terminate and still reach the same conclusion,
+// just after deciding the available packages first, requesting their dependencies
+// and adding their incompatibilities on the way — more work, a different trace, and
+// a different package named first in an error. Nothing fails loudly.
+//
+// # What makes this test able to fail
+//
+// The universe reports math.MaxInt as the rank of an unavailable package rather
+// than 0 (legal: the contract says rank is ignored when found is false). That is
+// deliberate. With 0 there, a solver that dropped the found comparison and ordered
+// by rank alone would still put unavailability first and this test would pass
+// while asserting nothing. The hostile rank makes that regression fail.
+func TestMakeDecisionPrefersUnavailabilityOverEveryAvailablePackage(t *testing.T) {
+	ps := newPS()
+	st := NewStore[string, set]()
+
+	// "available" has exactly one candidate, so its rank is 1 — the smallest a
+	// found package can report. "missing" publishes nothing in the required range.
+	u := newUniverse().with("available", 1).with("missing", 1)
+
+	// Derived FIRST, so neither the chronological tie-break nor iteration order can
+	// be what hands the win to "missing".
+	ps.Derive("available", pos(versionset.Exactly(1)), nil)
+	ps.Derive("missing", pos(versionset.Range(5, 9)), nil)
+
+	outcome, err := MakeDecision(ps, st, u)
+	if err != nil {
+		t.Fatalf("MakeDecision: %v", err)
+	}
+
+	if outcome.Decided {
+		t.Fatalf("decided %q %v, but the unavailable package should have been taken first: "+
+			"unavailability must be ordered ahead of every available package, whatever rank "+
+			"the provider reported for it", outcome.Package, outcome.Version)
+	}
+	if outcome.Package != "missing" {
+		t.Errorf("outcome package = %q, want \"missing\"", outcome.Package)
+	}
+	if u.calls["available"] != 0 {
+		t.Error("the available package's dependencies were requested, so the solver worked " +
+			"through it before noticing the unavailable one — that is the regression this " +
+			"test exists for")
+	}
+
+	if st.Len() != 1 {
+		t.Fatalf("store holds %d incompatibilities, want 1 (the forbidden range)", st.Len())
+	}
+	forbidden := st.All()[0]
+	if forbidden.Kind() != KindNoVersions {
+		t.Errorf("kind = %v, want no versions", forbidden.Kind())
+	}
+	if got, _ := forbidden.Term("missing"); !got.Equal(pos(versionset.Range(5, 9))) {
+		t.Errorf("forbidden term = %v, want positive [5,9)", got)
+	}
+}
+
+// TestMakeDecisionRankChangesTheOrderNotTheValidity pins what rank actually is: an
+// input to the search ORDER that cannot make a resolution invalid.
+//
+// # What this deliberately does NOT assert
+//
+// An earlier version solved one scenario twice and required IDENTICAL pins. That
+// was worthless twice over. The scenario had exactly one solution, so identical
+// pins were guaranteed however rank was handled — it passed with the ordering
+// comparison reversed, and passed with its own constantRank lever deleted. And the
+// invariant it claimed is false: a constant rank CAN move pins to a different valid
+// answer, which is measured behaviour against a real index and is exactly why the
+// contract warns against constants.
+//
+// So this asserts the two things that are both true and checkable: the order
+// changes, and the answer stays valid.
+func TestMakeDecisionRankChangesTheOrderNotTheValidity(t *testing.T) {
+	// wide has three candidates and narrow two, and wide is derived FIRST. So the
+	// two strategies genuinely disagree: an exact rank prefers narrow for having
+	// fewer, while a constant rank makes every package tie and hands it to the
+	// earliest derivation, which is wide.
+	//
+	// Asserted through MakeDecision rather than a whole Solve, so the derive order
+	// is stated by the test instead of falling out of propagation.
+	pick := func(constant bool) string {
+		t.Helper()
+		ps := newPS()
+		st := NewStore[string, set]()
+		u := newUniverse().
+			with("wide", 1).with("wide", 2).with("wide", 3).
+			with("narrow", 1).with("narrow", 2)
+		u.constantRank = constant
+
+		ps.Derive("wide", pos(versionset.AtLeast(1)), nil)
+		ps.Derive("narrow", pos(versionset.AtLeast(1)), nil)
+
+		outcome, err := MakeDecision(ps, st, u)
+		if err != nil {
+			t.Fatalf("MakeDecision (constantRank=%v): %v", constant, err)
+		}
+		if !outcome.Decided {
+			t.Fatalf("MakeDecision (constantRank=%v) decided nothing", constant)
+		}
+		return outcome.Package
+	}
+
+	exactPick, constantPick := pick(false), pick(true)
+
+	if exactPick == constantPick {
+		t.Errorf("both strategies chose %q, so rank changed nothing here and this test is not "+
+			"exercising the heuristic it claims to", exactPick)
+	}
+	if exactPick != "narrow" {
+		t.Errorf("exact rank chose %q, want \"narrow\": fewer candidates wins", exactPick)
+	}
+	if constantPick != "wide" {
+		t.Errorf("constant rank chose %q, want \"wide\": every rank ties, so the earliest "+
+			"derivation wins", constantPick)
+	}
+
+	// And the invariant rank must never break: a constant still yields a VALID
+	// resolution. Weaker than pin identity on purpose — see above.
+	u := newUniverse().
+		with("wide", 1).with("wide", 2).with("wide", 3).
+		with("narrow", 1).with("narrow", 2).
+		with("root", 0,
+			requirement("wide", versionset.AtLeast(1)),
+			requirement("narrow", versionset.AtLeast(1)))
+	u.constantRank = true
+
+	sol, err := New("root", versionset.Exactly(0), u).Solve()
+	if err != nil {
+		t.Fatalf("Solve with a constant rank: %v", err)
+	}
+	for _, pkg := range []string{"wide", "narrow"} {
+		ver, ok := sol.Selected[pkg]
+		if !ok {
+			t.Errorf("constant rank: %s is not pinned, but root requires it", pkg)
+			continue
+		}
+		if !versionset.IsSubsetOf(ver, versionset.AtLeast(1)) {
+			t.Errorf("constant rank: %s pinned %v, outside root's requirement >=1", pkg, ver)
+		}
+	}
+}
+
+// TestMakeDecisionUnavailableTieBreakIsChronological covers the other half of
+// preferCandidate's ordering, which nothing else reaches.
+//
+// When two eligible packages are BOTH unavailable the incumbent is kept, so the
+// earliest derivation still wins. Flipping that comparison left every other test in
+// the repo green: which unavailable package gets its KindNoVersions incompatibility
+// first decides which one a failure explanation names first, and no other fixture
+// has two simultaneously-eligible unavailable packages.
+func TestMakeDecisionUnavailableTieBreakIsChronological(t *testing.T) {
+	// Ten runs, because a map-order tie-break needs several to show itself.
+	for i := 0; i < 10; i++ {
+		ps := newPS()
+		st := NewStore[string, set]()
+		u := newUniverse().with("earlier", 1).with("later", 1)
+
+		// Neither publishes anything in [5,9), so both are unavailable.
+		ps.Derive("earlier", pos(versionset.Range(5, 9)), nil)
+		ps.Derive("later", pos(versionset.Range(5, 9)), nil)
+
+		outcome, err := MakeDecision(ps, st, u)
+		if err != nil {
+			t.Fatalf("MakeDecision: %v", err)
+		}
+		if outcome.Decided {
+			t.Fatal("neither package has a version, so nothing may be decided")
+		}
+		if outcome.Package != "earlier" {
+			t.Fatalf("run %d took %q first, want \"earlier\": on a tie between two unavailable "+
+				"packages the earliest derivation wins, which is what keeps the package named "+
+				"first in an explanation stable", i, outcome.Package)
+		}
+		if st.Len() != 1 {
+			t.Fatalf("store holds %d incompatibilities, want 1", st.Len())
+		}
+		if _, ok := st.All()[0].Term("earlier"); !ok {
+			t.Errorf("the forbidden term is about %v, want it about \"earlier\"", st.All()[0].Terms())
+		}
+	}
+}
+
+// TestMakeDecisionRejectsARangeOverlappingTheAllowedSet pins the containment half of
+// the best check.
+//
+// ps.Eligible tests NON-DISJOINTNESS, which coincides with containment only for a
+// single version — and singleton-ness is the one property of best that cannot be
+// checked, since versionset.Set has no singleton predicate. So before MakeDecision
+// also required IsSubsetOf, a provider returning a range that merely OVERLAPPED
+// allowed passed, was recorded as the chosen version, and reached Solution.Selected:
+// a decision outside the accumulated term, by the one route the disjointness test
+// cannot see. ps.Decide's guard did not catch it, and neither did Solve's final
+// ViolatedBy pass.
+func TestMakeDecisionRejectsARangeOverlappingTheAllowedSet(t *testing.T) {
+	ps := newPS()
+	st := NewStore[string, set]()
+
+	u := newUniverse().with("a", 1).with("a", 2)
+	// [1,10) overlaps the required [1,3) without being contained in it.
+	u.offerSet = map[string]set{"a": versionset.Range(1, 10)}
+
+	ps.Derive("a", pos(versionset.Range(1, 3)), nil)
+
+	_, err := MakeDecision(ps, st, u)
+	if err == nil {
+		t.Fatal("a best that overlaps the allowed set without being inside it must be refused: " +
+			"accepting it decides a version outside the accumulated term, which nothing " +
+			"downstream reports")
+	}
+	if !strings.Contains(err.Error(), "outside the allowed set") {
+		t.Errorf("err = %v, want it to name the allowed set", err)
+	}
+	if _, decided := ps.DecisionFor("a"); decided {
+		t.Error("no decision may be recorded for a refused candidate")
+	}
+}
+
 // satisfiedRelation names term.Satisfied without importing term into this file's
 // assertions, keeping the test's vocabulary the same as the solver's.
 func satisfiedRelation() interface{ String() string } {

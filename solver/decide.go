@@ -25,59 +25,74 @@ import (
 // constraints stay relevant. An implementation is free to cache, but should not
 // pre-fetch on the solver's behalf.
 type Provider[P comparable, S versionset.Set[S]] interface {
-	// Candidates reports the versions of pkg that lie within allowed: how many
-	// there are, and which single one to try first.
+	// Candidates reports which version of pkg the solver should try first within
+	// allowed, whether there is one at all, and how urgent this package is to
+	// work on.
 	//
-	// # The count answers two different questions, and only one of them is exact
+	// # found is the correctness-bearing answer, and it is an EXISTENCE question
 	//
-	// Whether the count is ZERO is correctness-bearing. Zero is what the solver
-	// treats as "unavailable": it derives a KindNoVersions incompatibility from it
-	// and forbids the whole of allowed. So zero must mean exactly that nothing in
-	// allowed can be used — including the case where a version exists but its
-	// metadata cannot be fetched, which §8 models identically to the version not
-	// existing. Reporting zero when something is usable forbids a range that is
-	// fine; reporting nonzero when nothing is usable hands back a best the solver
-	// then cannot act on.
+	// found must be false exactly when no version of pkg can be used within
+	// allowed — including the case where a version exists but its metadata cannot
+	// be fetched, which §8 models identically to the version not existing. The
+	// solver treats false as "unavailable": it derives a KindNoVersions
+	// incompatibility and forbids the whole of allowed. Reporting false when
+	// something is usable forbids a range that is fine; reporting true when
+	// nothing is usable hands back a best the solver cannot act on.
 	//
-	// How LARGE a nonzero count is drives §8's PACKAGE-choice heuristic — which
-	// package to work on next, not which version of it — and nothing else. So an
-	// approximation there changes which order things are tried, never whether the
-	// answer is correct. Version choice consumes no count at all: the provider
-	// hands back best itself.
+	// ⚠️ Because this is existence and not cardinality, a TRUE answer is
+	// discharged by finding one usable version and stopping. Do not enumerate
+	// allowed merely to count. That is the point of the split: a provider that
+	// counts pays per candidate version, where one that answers existence pays per
+	// package it actually decides.
 	//
-	// ⚠️ Those two obligations are separate, and conflating them is expensive.
-	// "Zero exactly when nothing is usable" is an EXISTENCE question, and in the
-	// direction that matters most it is cheap: a NONZERO answer is settled by
-	// finding one usable version and stopping. It is the exact magnitude — wanted
-	// only by the heuristic — that requires testing every version in allowed.
+	// A FALSE answer is different and cannot be short-circuited: proving that
+	// nothing in allowed is usable means examining all of it. That cost is
+	// irreducible, and it is correctness-bearing. So what the split removes is
+	// paying the exhaustive walk on EVERY package rather than only on the ones
+	// where the answer really is "nothing" — a common-case saving, not a
+	// worst-case one.
 	//
-	// The zero answer is the exception, and it is not cheap: proving that NOTHING
-	// in allowed is usable does require testing all of it, and that half is
-	// correctness-bearing. That cost is irreducible. What an exact count adds is
-	// paying it on every package rather than only on the ones where the answer
-	// really is "nothing".
+	// # rank only orders the search
 	//
-	// # best, and the two things the solver does NOT verify about it
+	// rank feeds §8's PACKAGE-choice heuristic — which package to work on next, not
+	// which version of it, since best is supplied directly. Both prose sources are
+	// explicit that this is tunable rather than part of correctness, and Solve
+	// verifies its answer against the whole incompatibility set regardless, so rank
+	// cannot make a resolution WRONG.
 	//
-	// best must be a single version lying within allowed. Neither half of that is
-	// fully checked, and the gaps are related, so both are worth stating.
+	// It is a hint in the strict sense: the solver only ever compares one rank
+	// against another and never reads it as a quantity. Nothing requires it to be a
+	// count, an upper bound, or non-negative. It also must not cost I/O that
+	// answering found did not already require.
 	//
-	// The check is ps.Eligible, which tests that best is not DISJOINT from what has
-	// accumulated — not that it is contained in it. For a single version those are
-	// the same question, which is why this is sound in the intended case and why
-	// the error it raises is phrased as "outside the allowed set".
+	// Counting the versions in allowed BEFORE testing usability is the intended
+	// implementation — free, since that list has to exist anyway, and on everything
+	// measured it preserved the ordering an exact count produced.
 	//
-	// Singleton-ness is not checked at all, because versionset.Set has no singleton
-	// predicate and none can be derived from the five methods it does have. So a
-	// provider returning a RANGE that merely overlaps allowed passes the check, gets
-	// recorded as the chosen version, and reaches Solution.Selected — a decision
-	// outside the accumulated term, which is exactly the corruption the check exists
-	// to prevent, arriving by the one route the check cannot see. ps.Decide's own
-	// guard does not catch it either, nor does Solve's final ViolatedBy pass.
+	// ⚠️ rank cannot make a resolution wrong, but it CAN change which of several
+	// legal resolutions is found. A constant disables the heuristic entirely, and
+	// measured against a real index that silently moved pins to a different valid
+	// answer. Legal, cheap, and a bad idea: return something with signal in it.
 	//
-	// Returning a non-singleton best is therefore a provider bug with no loud
+	// rank is ignored entirely when found is false. Unavailability is ordered ahead
+	// of every available package by the solver itself, so an implementation neither
+	// needs to encode that in rank nor may rely on a sentinel value to achieve it.
+	//
+	// # best, and what the solver does NOT verify about it
+	//
+	// best must be a single version lying within allowed. Containment is enforced:
+	// MakeDecision requires it explicitly, because ps.Eligible alone tests only
+	// that best is not DISJOINT from what has accumulated, which coincides with
+	// containment for a single version and not for a range.
+	//
+	// Singleton-ness is NOT checked, because versionset.Set has no singleton
+	// predicate and none can be derived from the five methods it has. A range that
+	// happens to sit inside allowed is therefore accepted and recorded as the chosen
+	// version, reaching Solution.Selected. That is a provider bug with no loud
 	// failure attached. Do not do it.
-	Candidates(pkg P, allowed S) (best S, count int, err error)
+	//
+	// best is never acted on when found is false.
+	Candidates(pkg P, allowed S) (best S, found bool, rank int, err error)
 
 	// Dependencies reports what pkg at the given single version requires.
 	//
@@ -168,20 +183,38 @@ func MakeDecision[P comparable, S versionset.Set[S]](
 	}
 	pkg, allowed, best := chosen.pkg, chosen.allowed, chosen.best
 
-	if chosen.count == 0 {
+	if !chosen.found {
 		// §8's unavailability case. The forbidden range is exactly what the
 		// accumulated derivations already required, so nothing else can contradict
 		// it and propagation will act on it immediately.
+		//
+		// Built from pkg and allowed alone — both computed here from the partial
+		// solution, never supplied by the provider — so this needs nothing from
+		// Candidates beyond the fact that nothing is available. chosen.best is
+		// meaningless on this path and is never acted on.
 		st.Add(NewIncompatibility(KindNoVersions, map[P]term.Term[S]{
 			pkg: term.Positive(allowed),
 		}))
 		return DecisionOutcome[P, S]{Package: pkg}, nil
 	}
 
-	if !ps.Eligible(pkg, best) {
-		// Refusing beats trusting: a decision outside the accumulated term makes
-		// every later relation test about the package answer Satisfied, and
-		// nothing afterwards points back here.
+	// Refusing beats trusting: a decision outside the accumulated term makes every
+	// later relation test about the package answer Satisfied, and nothing
+	// afterwards points back here.
+	//
+	// ⚠️ Both halves are needed, and ps.Eligible alone is NOT enough. Eligible tests
+	// that best is not DISJOINT from what has accumulated, which coincides with
+	// containment only for a single version — and singleton-ness is the one property
+	// of best that cannot be checked, since versionset.Set has no singleton
+	// predicate. So a provider returning a RANGE that merely overlaps allowed passed
+	// this check, was decided, and reached Solution.Selected: a version outside the
+	// accumulated term, arriving by the one route the disjointness test cannot see,
+	// with ps.Decide's guard and Solve's final ViolatedBy pass both blind to it.
+	// IsSubsetOf closes that.
+	//
+	// Eligible is still asked, because it also rejects the empty set, which
+	// IsSubsetOf accepts: ∅ is a subset of everything.
+	if !ps.Eligible(pkg, best) || !versionset.IsSubsetOf(best, allowed) {
 		return zero, fmt.Errorf("solver: provider offered %s %v, which is outside the allowed set %v",
 			formatPackage(pkg), best, allowed)
 	}
@@ -231,10 +264,12 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 	// asked about, and the range §8's unavailability case forbids.
 	allowed S
 
-	// best is the version to try, and count how many lie within allowed. A count
-	// of zero means nothing is available and best is meaningless.
+	// best is the version to try and found whether there is one; rank is the
+	// provider's ordering hint. When found is false, nothing is available within
+	// allowed, and both best and rank are meaningless.
 	best  S
-	count int
+	found bool
+	rank  int
 }
 
 // chooseCandidate applies §8's eligibility and heuristic. It reports false when
@@ -261,26 +296,22 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 // produces different traces, and different packages named first in an error, from
 // run to run on identical input.
 //
-// ⚠️ An unavailable package wins this comparison for free, and that is relied on.
-// Zero is the smallest LEGAL count, so a package the provider reports no candidates
-// for sorts ahead of every package that has some, which is what makes MakeDecision
-// reach its unavailability case in the round it appears rather than after deciding
-// the available packages first. Anything that stops expressing unavailability as
-// the smallest count has to re-establish that ordering explicitly.
-//
-// "Smallest legal" and not "smallest possible": count is a plain int and nothing
-// rejects a negative one. A provider returning a negative count outranks a
-// genuinely unavailable package AND fails the == 0 test, so the unavailability case
-// is skipped and the solve aborts on the meaningless best that came with it. That
-// is a provider bug, but it is one this ordering is defenceless against.
-//
-// Note this orders solver ROUNDS, not provider work: chooseCandidate asks
-// Candidates about every eligible package on every round regardless of who wins.
+// ⚠️ An unavailable package is ordered ahead of every available one, which is what
+// makes MakeDecision reach its unavailability case in the round it appears rather
+// than after deciding the available packages first. See preferCandidate: that
+// ordering used to fall out of zero being the smallest legal count, and is now
+// explicit. Note it orders solver ROUNDS and not provider work — Candidates is
+// asked about every eligible package on every round regardless of who wins.
 func chooseCandidate[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], provider Provider[P, S],
 ) (candidate[P, S], bool, error) {
 	var chosen candidate[P, S]
-	found := false
+
+	// Named for what it means to the caller — some package was eligible to work on
+	// — and kept distinct from candidate.found, which is whether the PROVIDER has a
+	// version for that package. The two are independent: an eligible package with
+	// nothing available is exactly §8's unavailability case.
+	eligible := false
 
 	decided := make(map[P]bool)
 	for _, a := range ps.Assignments() {
@@ -306,20 +337,50 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 			continue
 		}
 
-		best, count, err := provider.Candidates(a.Package, accumulated.Set())
+		best, available, rank, err := provider.Candidates(a.Package, accumulated.Set())
 		if err != nil {
 			return candidate[P, S]{}, false, fmt.Errorf("solver: candidates for %s: %w",
 				formatPackage(a.Package), err)
 		}
 
-		// Strictly fewer, so the earliest of a tie wins.
-		if !found || count < chosen.count {
-			chosen = candidate[P, S]{pkg: a.Package, allowed: accumulated.Set(), best: best, count: count}
-			found = true
+		next := candidate[P, S]{
+			pkg:     a.Package,
+			allowed: accumulated.Set(),
+			best:    best,
+			found:   available,
+			rank:    rank,
+		}
+		if !eligible || preferCandidate(next, chosen) {
+			chosen = next
+			eligible = true
 		}
 	}
 
-	return chosen, found, nil
+	return chosen, eligible, nil
+}
+
+// preferCandidate reports whether a should be worked on before b.
+//
+// ⚠️ Unavailability comes FIRST, ahead of every available package, regardless of
+// rank. Before the found/rank split this was implicit: unavailability was a count
+// of zero, zero is the smallest legal count, so it won the comparison for free.
+// With a separate boolean that ordering has to be stated, and losing it does not
+// fail loudly — MakeDecision would still reach its unavailability case eventually,
+// just after deciding the available packages first, doing their dependency lookups
+// and adding their incompatibilities on the way. Wrong-but-still-correct behaviour
+// of exactly the kind that hides.
+//
+// Among available packages it is strictly-fewer, so the earliest of a rank tie
+// wins and the caller's chronological iteration is what breaks it.
+func preferCandidate[P comparable, S versionset.Set[S]](a, b candidate[P, S]) bool {
+	if a.found != b.found {
+		return !a.found
+	}
+	if !a.found {
+		// Both unavailable: keep the incumbent, so the earliest still wins.
+		return false
+	}
+	return a.rank < b.rank
 }
 
 // classifyAssuming reports how inc would classify if pkg were decided at version,

@@ -609,6 +609,14 @@ sources are explicit that this is a tunable heuristic, not part of the algorithm
 correctness — any legal choice preserves correctness, only performance/error-quality
 differs. See §11 for what is left genuinely open here.
 
+Because it is only a heuristic, this implementation asks the provider for an *approximate*
+ordering hint (`Candidates`' `rank`) and keeps the correctness-bearing question — is anything
+available at all — as a separate boolean. "Fewest candidate versions" would otherwise
+require a provider to establish that every version in range is usable, which is per-version
+work in service of an ordering preference. **Un**availability is ordered ahead of every
+available package, which the count-shaped version of this got for free from zero being the
+smallest legal count, and which is now explicit.
+
 **Turning dependencies into incompatibilities, lazily.** Before (tentatively) committing to
 a version, first materialize that version's dependencies as new external incompatibilities
 (§3) and add them to the known set — but only for the version actually being considered,
@@ -901,14 +909,23 @@ implementation needs the most care and the most test coverage.
    in an error — this affects UX quality, not correctness, but is worth pinning down
    deliberately rather than by accident of map/slice iteration order.
 
-   **Resolved in the implementation (§8, 2026-08-10).** Fewest candidates first, and on an
-   exact tie the package whose **first positive derivation came earliest** wins. The count is
-   what the provider reports for the versions still allowed by the accumulated term, so it
-   does account for versions already ruled out rather than being "fewest ever published".
-   What is being bought is determinism: the eligible packages are walked in the partial
+   **Resolved in the implementation (§8, 2026-08-10; revised 2026-08-13).** Lowest `rank`
+   first, and on an exact tie the package whose **first positive derivation came earliest**
+   wins. What is being bought is determinism: the eligible packages are walked in the partial
    solution's chronological order, so neither the choice nor the package named first in an
    error can vary between runs on identical input, which is what iterating a map would have
    allowed.
+
+   The second question the sources leave open — whether "fewest matching versions" counts
+   versions already ruled out — is **no longer answered by this implementation, deliberately**.
+   `rank` is asked of the provider for the versions the accumulated term still allows, so it
+   is naturally of the right shape, but it is documented as a hint that need not be a count of
+   anything: a provider may legally return a constant. So the implementation guarantees only
+   the ordering *given whatever the provider reports*, not that the quantity accounts for
+   versions ruled out. That is the price of not requiring a provider to establish usability
+   for every version in range, and since the sources call the whole heuristic tunable, it
+   costs nothing that was ever promised. Unavailability, by contrast, **is** ordered ahead of
+   every available package by the solver itself and does not depend on `rank` at all.
 3. **The precise general form of the "joint satisfaction" correction in conflict
    resolution (§7.3 step 3) is given by the Dart source only via one worked identity and a
    single illustrative note**, not a fully worked proof covering every shape of range

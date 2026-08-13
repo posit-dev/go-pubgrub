@@ -9,6 +9,63 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Breaking
+
+- `solver.Provider.Candidates` now returns `(best S, found bool, rank int, err error)`
+  instead of `(best S, count int, err error)`. Every implementation must be updated;
+  the change is mechanical, and for most providers it also makes them much cheaper.
+
+  The single `count` was carrying two unrelated obligations. Whether it was **zero**
+  was correctness-bearing — the solver derives a `KindNoVersions` incompatibility from
+  it — while **how large** a nonzero count was only fed the package-choice heuristic
+  (which package to work on next), which the prose sources and this library's own
+  documentation call tunable. Because the two shared one return value, satisfying the
+  correctness half appeared to require the exactness the heuristic half wanted, and an
+  exact count means establishing that every version in range is usable.
+
+  Splitting them makes the correctness half an *existence* question. A **true** answer
+  is dischargeable by finding one usable version and stopping; a **false** one still
+  requires examining everything in range, since that is what proving absence means, and
+  that cost is irreducible. What the split removes is paying the exhaustive walk on
+  every package rather than only where the answer really is "nothing". Measured on a
+  932,861-package index, a provider rewritten this way read **31.6x fewer** metadata
+  records while producing identical resolutions and identical failure explanations
+  across 200 packages.
+
+  `rank` is a hint in the strict sense: the solver only ever compares one against
+  another and never reads it as a quantity. It need not be a count, an upper bound, or
+  non-negative. Counting the in-range versions before testing usability is the intended
+  implementation.
+
+  To migrate: return `found: count > 0` and `rank: count` for behaviour identical to
+  before, then make `found` short-circuit and `rank` cheap when convenient.
+
+  ⚠️ `rank` is ignored when `found` is false, and unavailability is ordered ahead of
+  every available package by the solver. Providers do not need to encode that in
+  `rank`, and must not rely on a sentinel value to achieve it.
+
+  ⚠️ A constant `rank` is legal and is a bad idea: it disables the heuristic, and
+  measured against a real index that silently moved pins to a different *valid* answer.
+
+### Fixed
+
+- `MakeDecision` now requires `best` to be **contained in** the allowed set, not merely
+  to overlap it. `ps.Eligible` tests non-disjointness, which coincides with containment
+  only for a single version — and singleton-ness is the one property of `best` the solver
+  cannot check, since `versionset.Set` has no singleton predicate. A provider returning a
+  range that merely overlapped the accumulated term therefore had it accepted, decided,
+  and carried into `Solution.Selected`: a decision outside the accumulated term, arriving
+  by the one route the disjointness check could not see, with `ps.Decide`'s guard and
+  `Solve`'s final `ViolatedBy` pass both blind to it.
+
+### Changed
+
+- `Provider.Candidates`' documentation no longer claims the count "drives §8's
+  heuristic and nothing else" — it also drove the correctness-bearing unavailability
+  branch. It also no longer implies the solver checks that `best` is a single version:
+  `versionset.Set` has no singleton predicate, so a range returned there is recorded
+  as the chosen version. That is an uncatchable provider bug, now documented as one.
+
 ## [0.1.0] - 2026-08-12
 
 First release. The algorithm is complete: unit propagation, decision making,
