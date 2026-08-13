@@ -57,17 +57,26 @@ type Provider[P comparable, S versionset.Set[S]] interface {
 	// paying it on every package rather than only on the ones where the answer
 	// really is "nothing".
 	//
-	// # best
+	// # best, and the two things the solver does NOT verify about it
 	//
-	// best must lie within allowed. The solver rejects one that does not rather
-	// than trusting it, because a decision outside the accumulated term corrupts
-	// the partial solution in a way that no later error points back to.
+	// best must be a single version lying within allowed. Neither half of that is
+	// fully checked, and the gaps are related, so both are worth stating.
 	//
-	// best is also expected to be a single version rather than a range, and the
-	// solver does NOT check that: versionset.Set has no singleton predicate, so a
-	// provider that returns a range here will have it recorded as the chosen
-	// version and carried into Solution.Selected. That is a provider bug the
-	// solver cannot catch, not a supported way to use this interface.
+	// The check is ps.Eligible, which tests that best is not DISJOINT from what has
+	// accumulated — not that it is contained in it. For a single version those are
+	// the same question, which is why this is sound in the intended case and why
+	// the error it raises is phrased as "outside the allowed set".
+	//
+	// Singleton-ness is not checked at all, because versionset.Set has no singleton
+	// predicate and none can be derived from the five methods it does have. So a
+	// provider returning a RANGE that merely overlaps allowed passes the check, gets
+	// recorded as the chosen version, and reaches Solution.Selected — a decision
+	// outside the accumulated term, which is exactly the corruption the check exists
+	// to prevent, arriving by the one route the check cannot see. ps.Decide's own
+	// guard does not catch it either, nor does Solve's final ViolatedBy pass.
+	//
+	// Returning a non-singleton best is therefore a provider bug with no loud
+	// failure attached. Do not do it.
 	Candidates(pkg P, allowed S) (best S, count int, err error)
 
 	// Dependencies reports what pkg at the given single version requires.
@@ -253,12 +262,20 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 // run to run on identical input.
 //
 // ⚠️ An unavailable package wins this comparison for free, and that is relied on.
-// Zero is the numeric minimum, so a package the provider reports no candidates for
-// always sorts ahead of every package that has some, which is what makes
-// MakeDecision reach its unavailability case promptly rather than after working
-// through the available packages first. Anything that stops expressing
-// unavailability as the smallest count has to re-establish that ordering
-// explicitly.
+// Zero is the smallest LEGAL count, so a package the provider reports no candidates
+// for sorts ahead of every package that has some, which is what makes MakeDecision
+// reach its unavailability case in the round it appears rather than after deciding
+// the available packages first. Anything that stops expressing unavailability as
+// the smallest count has to re-establish that ordering explicitly.
+//
+// "Smallest legal" and not "smallest possible": count is a plain int and nothing
+// rejects a negative one. A provider returning a negative count outranks a
+// genuinely unavailable package AND fails the == 0 test, so the unavailability case
+// is skipped and the solve aborts on the meaningless best that came with it. That
+// is a provider bug, but it is one this ordering is defenceless against.
+//
+// Note this orders solver ROUNDS, not provider work: chooseCandidate asks
+// Candidates about every eligible package on every round regardless of who wins.
 func chooseCandidate[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], provider Provider[P, S],
 ) (candidate[P, S], bool, error) {
