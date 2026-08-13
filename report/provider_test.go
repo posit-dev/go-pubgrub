@@ -52,24 +52,25 @@ func (u *universe) with(pkg string, version int64, deps ...dep) *universe {
 	return u
 }
 
-// Candidates implements solver.Provider: how many published versions lie within
-// allowed, and the latest of them, which is §8's stated preference.
-func (u *universe) Candidates(pkg string, allowed set) (set, int, error) {
+// Candidates implements solver.Provider: whether any published version lies
+// within allowed, the latest of them (which is §8's stated preference), and how
+// many there are.
+func (u *universe) Candidates(pkg string, allowed set) (set, bool, int, error) {
 	best := int64(0)
-	count := 0
+	rank := 0
 	for _, v := range u.versions[pkg] {
 		if !allowed.Contains(v) {
 			continue
 		}
-		count++
-		if count == 1 || v > best {
+		rank++
+		if rank == 1 || v > best {
 			best = v
 		}
 	}
-	if count == 0 {
-		return versionset.Empty(), 0, nil
+	if rank == 0 {
+		return versionset.Empty(), false, 0, nil
 	}
-	return versionset.Exactly(best), count, nil
+	return versionset.Exactly(best), true, rank, nil
 }
 
 // Dependencies implements solver.Provider.

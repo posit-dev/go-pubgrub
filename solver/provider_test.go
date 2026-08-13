@@ -5,6 +5,7 @@ package solver
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/posit-dev/go-pubgrub/versionset"
 )
@@ -33,6 +34,20 @@ type universe struct {
 	// offer, when set, overrides what Candidates returns as its best version —
 	// used to check that the solver does not trust it.
 	offer map[string]int64
+
+	// offerSet does the same with an arbitrary SET rather than a single version, so
+	// a test can offer a RANGE. That is the case ps.Eligible cannot reject on its
+	// own, since it tests non-disjointness rather than containment.
+	offerSet map[string]set
+
+	// constantRank makes Candidates report rank 1 for every available package: the
+	// legal-but-useless extreme of the hint, which disables the heuristic
+	// completely.
+	//
+	// It is legal because the solver only ever COMPARES ranks. Note it is not an
+	// upper bound on the usable versions — "wide" has three and this reports one —
+	// and the contract deliberately does not require one.
+	constantRank bool
 }
 
 func newUniverse() *universe {
@@ -55,31 +70,50 @@ func (u *universe) with(pkg string, version int64, deps ...Dependency[string, se
 	return u
 }
 
-// Candidates implements Provider: how many versions lie within allowed, and the
-// LATEST of them, which is §8's stated preference.
-func (u *universe) Candidates(pkg string, allowed set) (set, int, error) {
+// Candidates implements Provider: whether any version lies within allowed, the
+// LATEST of them (which is §8's stated preference), and how many there are.
+//
+// The rank this returns is exact, because with an in-memory version list that is
+// free. A real provider is explicitly allowed to approximate it — see
+// constantRank, which is how the tests check that approximating changes the search
+// order without changing the answer.
+func (u *universe) Candidates(pkg string, allowed set) (set, bool, int, error) {
 	if pkg == u.failFor {
-		return versionset.Empty(), 0, errors.New("index unavailable")
+		return versionset.Empty(), false, 0, errors.New("index unavailable")
 	}
 
 	best := int64(0)
-	count := 0
+	rank := 0
 	for _, v := range u.versions[pkg] {
 		if !allowed.Contains(v) {
 			continue
 		}
-		count++
-		if count == 1 || v > best {
+		rank++
+		if rank == 1 || v > best {
 			best = v
 		}
 	}
-	if count == 0 {
-		return versionset.Empty(), 0, nil
+	if rank == 0 {
+		// ⚠️ A deliberately HOSTILE rank on the unavailable path, not 0.
+		//
+		// The contract says rank is ignored when found is false, so this is legal —
+		// and it is the only way the suite can prove the solver honours that. With 0
+		// here, unavailability would keep winning preferCandidate's ordering purely
+		// because 0 is the numeric minimum, so a solver that dropped the found
+		// branch and compared rank alone would still pass. Returning the maximum
+		// makes that regression fail instead of hiding.
+		return versionset.Empty(), false, math.MaxInt, nil
+	}
+	if u.constantRank {
+		rank = 1
+	}
+	if override, ok := u.offerSet[pkg]; ok {
+		return override, true, rank, nil
 	}
 	if override, ok := u.offer[pkg]; ok {
-		return versionset.Exactly(override), count, nil
+		return versionset.Exactly(override), true, rank, nil
 	}
-	return versionset.Exactly(best), count, nil
+	return versionset.Exactly(best), true, rank, nil
 }
 
 // Dependencies implements Provider.
