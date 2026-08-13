@@ -28,17 +28,39 @@ type Provider[P comparable, S versionset.Set[S]] interface {
 	// Candidates reports the versions of pkg that lie within allowed: how many
 	// there are, and which single one to try first.
 	//
-	// The count drives §8's heuristic and nothing else, so an approximation
-	// changes which order things are tried, never whether the answer is correct.
-	// It must be 0 exactly when no version of pkg lies within allowed, since that
-	// is what the solver treats as "unavailable" — including the case where a
-	// version exists but its metadata cannot be fetched, which §8 models
-	// identically to the version not existing.
+	// # The count answers two different questions, and only one of them is exact
 	//
-	// best must be a single version, and must lie within allowed. The solver
-	// rejects one that does not rather than trusting it, because a decision
-	// outside the accumulated term corrupts the partial solution in a way that no
-	// later error points back to.
+	// Whether the count is ZERO is correctness-bearing. Zero is what the solver
+	// treats as "unavailable": it derives a KindNoVersions incompatibility from it
+	// and forbids the whole of allowed. So zero must mean exactly that nothing in
+	// allowed can be used — including the case where a version exists but its
+	// metadata cannot be fetched, which §8 models identically to the version not
+	// existing. Reporting zero when something is usable forbids a range that is
+	// fine; reporting nonzero when nothing is usable hands back a best the solver
+	// then cannot act on.
+	//
+	// How LARGE a nonzero count is drives §8's version-choice heuristic and
+	// nothing else, so an approximation there changes which order things are
+	// tried, never whether the answer is correct.
+	//
+	// ⚠️ Those two obligations are separate, and conflating them is expensive.
+	// "Zero exactly when nothing is usable" is an EXISTENCE question: an
+	// implementation discharges it by finding one usable version and stopping. It
+	// is the exact magnitude — wanted only by the heuristic — that requires
+	// testing every version in allowed. An implementation that needs the count to
+	// be exact pays for the heuristic, not for correctness.
+	//
+	// # best
+	//
+	// best must lie within allowed. The solver rejects one that does not rather
+	// than trusting it, because a decision outside the accumulated term corrupts
+	// the partial solution in a way that no later error points back to.
+	//
+	// best is also expected to be a single version rather than a range, and the
+	// solver does NOT check that: versionset.Set has no singleton predicate, so a
+	// provider that returns a range here will have it recorded as the chosen
+	// version and carried into Solution.Selected. That is a provider bug the
+	// solver cannot catch, not a supported way to use this interface.
 	Candidates(pkg P, allowed S) (best S, count int, err error)
 
 	// Dependencies reports what pkg at the given single version requires.
@@ -222,6 +244,14 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 // independent of map iteration order — the alternative being a solver that
 // produces different traces, and different packages named first in an error, from
 // run to run on identical input.
+//
+// ⚠️ An unavailable package wins this comparison for free, and that is relied on.
+// Zero is the numeric minimum, so a package the provider reports no candidates for
+// always sorts ahead of every package that has some, which is what makes
+// MakeDecision reach its unavailability case promptly rather than after working
+// through the available packages first. Anything that stops expressing
+// unavailability as the smallest count has to re-establish that ordering
+// explicitly.
 func chooseCandidate[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], provider Provider[P, S],
 ) (candidate[P, S], bool, error) {
