@@ -39,16 +39,23 @@ type Provider[P comparable, S versionset.Set[S]] interface {
 	// fine; reporting nonzero when nothing is usable hands back a best the solver
 	// then cannot act on.
 	//
-	// How LARGE a nonzero count is drives §8's version-choice heuristic and
-	// nothing else, so an approximation there changes which order things are
-	// tried, never whether the answer is correct.
+	// How LARGE a nonzero count is drives §8's PACKAGE-choice heuristic — which
+	// package to work on next, not which version of it — and nothing else. So an
+	// approximation there changes which order things are tried, never whether the
+	// answer is correct. Version choice consumes no count at all: the provider
+	// hands back best itself.
 	//
 	// ⚠️ Those two obligations are separate, and conflating them is expensive.
-	// "Zero exactly when nothing is usable" is an EXISTENCE question: an
-	// implementation discharges it by finding one usable version and stopping. It
-	// is the exact magnitude — wanted only by the heuristic — that requires
-	// testing every version in allowed. An implementation that needs the count to
-	// be exact pays for the heuristic, not for correctness.
+	// "Zero exactly when nothing is usable" is an EXISTENCE question, and in the
+	// direction that matters most it is cheap: a NONZERO answer is settled by
+	// finding one usable version and stopping. It is the exact magnitude — wanted
+	// only by the heuristic — that requires testing every version in allowed.
+	//
+	// The zero answer is the exception, and it is not cheap: proving that NOTHING
+	// in allowed is usable does require testing all of it, and that half is
+	// correctness-bearing. That cost is irreducible. What an exact count adds is
+	// paying it on every package rather than only on the ones where the answer
+	// really is "nothing".
 	//
 	// # best
 	//
