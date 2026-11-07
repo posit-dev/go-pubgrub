@@ -67,6 +67,9 @@ type Set[S any] interface {
 // nothing outside b. Deriving it means an implementation cannot get subset and
 // emptiness to disagree with each other.
 func IsSubsetOf[S Set[S]](a, b S) bool {
+	if f, ok := any(a).(SubsetOfer[S]); ok {
+		return f.IsSubsetOf(b)
+	}
 	return a.Intersect(b.Complement()).IsEmpty()
 }
 
@@ -77,5 +80,20 @@ func IsDisjointFrom[S Set[S]](a, b S) bool {
 
 // Difference returns the versions in a that are not in b.
 func Difference[S Set[S]](a, b S) S {
+	if f, ok := any(a).(Differencer[S]); ok {
+		return f.Difference(b)
+	}
 	return a.Intersect(b.Complement())
+}
+
+// SubsetOfer is an optional fast path for IsSubsetOf. It must agree with
+// a.Intersect(b.Complement()).IsEmpty().
+type SubsetOfer[S any] interface {
+	IsSubsetOf(other S) bool
+}
+
+// Differencer is an optional fast path for Difference. It must agree with
+// a.Intersect(b.Complement()).
+type Differencer[S any] interface {
+	Difference(other S) S
 }

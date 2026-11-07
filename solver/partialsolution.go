@@ -62,6 +62,21 @@ type PartialSolution[P comparable, S versionset.Set[S]] struct {
 
 	// level is the current decision level, i.e. the number of decisions made.
 	level int
+
+	// contradicted holds incompatibilities with a term the accumulated terms
+	// contradict. Intersection only narrows, so that holds until BacktrackTo.
+	contradicted map[*Incompatibility[P, S]]struct{}
+
+	// candMemo is the last Candidates answer per package, reused while the
+	// allowed set is unchanged (Candidates must be pure in (pkg, allowed)).
+	candMemo map[P]candidate[P, S]
+}
+
+func (ps *PartialSolution[P, S]) markContradicted(inc *Incompatibility[P, S]) {
+	if ps.contradicted == nil {
+		ps.contradicted = make(map[*Incompatibility[P, S]]struct{})
+	}
+	ps.contradicted[inc] = struct{}{}
 }
 
 // NewPartialSolution returns an empty partial solution.
@@ -481,6 +496,7 @@ func (ps *PartialSolution[P, S]) BacktrackTo(level int) {
 	}
 	ps.assignments = kept
 	ps.level = level
+	ps.contradicted = nil
 
 	ps.accumulated = make(accumulation[P, S], len(ps.accumulated))
 	for _, a := range ps.assignments {

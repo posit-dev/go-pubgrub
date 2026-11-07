@@ -29,6 +29,13 @@ type Provider[P comparable, S versionset.Set[S]] interface {
 	// allowed, whether there is one at all, and how urgent this package is to
 	// work on.
 	//
+	// # Candidates must be pure
+	//
+	// The solver may reuse an earlier answer: it asks again only when the allowed set
+	// for pkg has changed since the last answer. So Candidates must be a pure function
+	// of (pkg, allowed): the same inputs give the same best, found and rank, and the
+	// solver relies on no side effect of the call. A call may be skipped.
+	//
 	// # found is the correctness-bearing answer, and it is an EXISTENCE question
 	//
 	// allowed is always non-empty: propagation cannot empty an accumulated term, for
@@ -327,8 +334,9 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 // makes MakeDecision reach its unavailability case in the round it appears rather
 // than after deciding the available packages first. See preferCandidate: that
 // ordering used to fall out of zero being the smallest legal count, and is now
-// explicit. Note it orders solver ROUNDS and not provider work — Candidates is
-// asked about every eligible package on every round regardless of who wins.
+// explicit. Note it orders solver ROUNDS and not provider work — every eligible
+// package is considered on every round regardless of who wins, but Candidates is
+// only called again once that package's allowed set has changed.
 func chooseCandidate[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], provider Provider[P, S],
 ) (candidate[P, S], bool, error) {
@@ -364,18 +372,26 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 			continue
 		}
 
-		best, available, rank, err := provider.Candidates(a.Package, accumulated.Set())
-		if err != nil {
-			return candidate[P, S]{}, false, fmt.Errorf("solver: candidates for %s: %w",
-				formatPackage(a.Package), err)
-		}
-
-		next := candidate[P, S]{
-			pkg:     a.Package,
-			allowed: accumulated.Set(),
-			best:    best,
-			found:   available,
-			rank:    rank,
+		var next candidate[P, S]
+		if m, ok := ps.candMemo[a.Package]; ok && m.allowed.Equal(accumulated.Set()) {
+			next = m // allowed set unchanged since the last ask
+		} else {
+			best, available, rank, err := provider.Candidates(a.Package, accumulated.Set())
+			if err != nil {
+				return candidate[P, S]{}, false, fmt.Errorf("solver: candidates for %s: %w",
+					formatPackage(a.Package), err)
+			}
+			next = candidate[P, S]{
+				pkg:     a.Package,
+				allowed: accumulated.Set(),
+				best:    best,
+				found:   available,
+				rank:    rank,
+			}
+			if ps.candMemo == nil {
+				ps.candMemo = make(map[P]candidate[P, S])
+			}
+			ps.candMemo[a.Package] = next
 		}
 		if !eligible || preferCandidate(next, chosen) {
 			chosen = next

@@ -65,6 +65,15 @@ func Classify[P comparable, S versionset.Set[S]](
 func classify[P comparable, S versionset.Set[S]](
 	inc *Incompatibility[P, S], relation func(P, term.Term[S]) term.Relation,
 ) (Satisfaction, P) {
+	sat, p, _ := classifyFlag(inc, relation)
+	return sat, p
+}
+
+// classifyFlag is classify, also reporting whether it stopped on a contradicted
+// term. That answer lasts until the partial solution is truncated.
+func classifyFlag[P comparable, S versionset.Set[S]](
+	inc *Incompatibility[P, S], relation func(P, term.Term[S]) term.Relation,
+) (Satisfaction, P, bool) {
 	var unsatisfied P
 	inconclusive := 0
 
@@ -73,14 +82,14 @@ func classify[P comparable, S versionset.Set[S]](
 		case term.Contradicted:
 			// One term can never hold, so the conjunction cannot either.
 			var zero P
-			return Unrelated, zero
+			return Unrelated, zero, true
 		case term.Inconclusive:
 			inconclusive++
 			if inconclusive > 1 {
 				// Two open terms means nothing is forced: either could still go
 				// either way.
 				var zero P
-				return Unrelated, zero
+				return Unrelated, zero, false
 			}
 			unsatisfied = pkg
 		case term.Satisfied:
@@ -90,9 +99,9 @@ func classify[P comparable, S versionset.Set[S]](
 
 	if inconclusive == 0 {
 		var zero P
-		return FullySatisfied, zero
+		return FullySatisfied, zero, false
 	}
-	return AlmostSatisfied, unsatisfied
+	return AlmostSatisfied, unsatisfied, false
 }
 
 // PropagationResult reports how a propagation pass ended.
@@ -150,7 +159,15 @@ func Propagate[P comparable, S versionset.Set[S]](
 		delete(queued, pkg)
 
 		for _, inc := range st.Mentioning(pkg) {
-			satisfaction, open := Classify(ps, inc)
+			// A contradicted term stays contradicted until the partial solution
+			// is truncated, so those incompatibilities are not re-examined.
+			if _, dead := ps.contradicted[inc]; dead {
+				continue
+			}
+			satisfaction, open, contradicted := classifyFlag(inc, ps.Relation)
+			if contradicted {
+				ps.markContradicted(inc)
+			}
 
 			switch satisfaction {
 			case FullySatisfied:
