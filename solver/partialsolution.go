@@ -71,6 +71,9 @@ type PartialSolution[P comparable, S versionset.Set[S]] struct {
 	// allowed set is unchanged (Candidates must be pure in (pkg, allowed)).
 	candMemo map[P]candidate[P, S]
 
+	// rs is nil unless Solver.RunningSatisfier is set.
+	rs *runningState[P, S]
+
 	// stats holds the counters Solve copies into Solver.Stats.
 	stats Stats
 }
@@ -267,6 +270,10 @@ func (ps *PartialSolution[P, S]) Derive(pkg P, t term.Term[S], cause *Incompatib
 // append records the assignment and folds it into the accumulated term.
 func (ps *PartialSolution[P, S]) append(a Assignment[P, S]) {
 	ps.assignments = append(ps.assignments, a)
+	if ps.rs != nil {
+		ps.noteRunning(a, len(ps.assignments)-1)
+		return
+	}
 	ps.accumulated.add(a.Package, a.Term)
 }
 
@@ -346,6 +353,9 @@ func (ps *PartialSolution[P, S]) Decisions() []Assignment[P, S] {
 //
 // The returned index is invalidated by BacktrackTo — see Assignments.
 func (ps *PartialSolution[P, S]) FirstIndexSatisfying(pkg P, t term.Term[S]) (int, bool) {
+	if ps.rs != nil {
+		return ps.firstIndexSatisfyingRunning(pkg, t)
+	}
 	var running term.Term[S]
 	started := false
 
@@ -442,6 +452,9 @@ func (ps *PartialSolution[P, S]) PreviousSatisfierOf(inc *Incompatibility[P, S],
 	if satisfier < 0 || satisfier >= len(ps.assignments) {
 		return 0, false
 	}
+	if ps.rs != nil {
+		return ps.previousSatisfierRunning(inc, satisfier)
+	}
 
 	// The satisfier goes in first, so every test below is "this prefix, plus the
 	// satisfier". Intersection is commutative, so injecting it out of
@@ -499,9 +512,15 @@ func (ps *PartialSolution[P, S]) BacktrackTo(level int) {
 			break
 		}
 	}
+	if ps.rs != nil {
+		ps.truncateRunning(ps.assignments[len(kept):], len(kept))
+	}
 	ps.assignments = kept
 	ps.level = level
 	ps.contradicted = nil
+	if ps.rs != nil {
+		return
+	}
 
 	ps.accumulated = make(accumulation[P, S], len(ps.accumulated))
 	for _, a := range ps.assignments {

@@ -94,6 +94,11 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// visited, but the derivation trail can differ.
 	MergeDependencies bool
 
+	// RunningSatisfier (default off): keep a running term per assignment, so
+	// satisfier queries and BacktrackTo do not re-intersect a package's history.
+	// Same answers, less work.
+	RunningSatisfier bool
+
 	// Stats is filled by Solve. Read it after Solve returns, even on error.
 	Stats Stats
 }
@@ -155,6 +160,9 @@ func (s *Solver[P, S]) Store() *Store[P, S] { return s.st }
 func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	defer s.finishStats()
 	s.st.mergeDeps = s.MergeDependencies
+	if s.RunningSatisfier && s.ps.rs == nil {
+		s.ps.enableRunningSatisfier()
+	}
 	next := s.root
 
 	for round := 0; ; round++ {
