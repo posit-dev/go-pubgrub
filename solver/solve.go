@@ -38,6 +38,29 @@ func (e *Unsolvable[P, S]) Error() string {
 	return fmt.Sprintf("solver: no solution exists; root cause %v", e.RootCause)
 }
 
+// Stats counts work done by one Solve. It is filled however Solve returns,
+// including Unsolvable and error returns, and counting never changes behavior.
+type Stats struct {
+	// Decisions counts calls of PartialSolution.Decide.
+	Decisions int
+	// Backtracks counts calls of PartialSolution.BacktrackTo, even when nothing
+	// is removed.
+	Backtracks int
+	// PropagateVisits counts incompatibilities taken from Store.Mentioning that
+	// reach the contradicted-cache test.
+	PropagateVisits int
+	// PreCommitClassifications counts calls of classifyAssuming.
+	PreCommitClassifications int
+	// KeyBuilds counts packages examined by chooseCandidate: one per undecided
+	// package with a positive assignment, per decision round.
+	KeyBuilds int
+	// DependenciesCalls counts calls of Provider.Dependencies.
+	DependenciesCalls int
+	// LiveDependencyRecords is the number of KindDependency incompatibilities
+	// Store.Mentioning can still return, at the end of Solve.
+	LiveDependencyRecords int
+}
+
 // Solver runs §5's main loop over one root package.
 //
 // Construct it with New, then call Solve. The partial solution and the
@@ -64,6 +87,9 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// on for this in general, but it is asserted rather than derived, so a caller
 	// facing untrusted input has somewhere to put a bound instead of hanging.
 	MaxRounds int
+
+	// Stats is filled by Solve. Read it after Solve returns, even on error.
+	Stats Stats
 }
 
 // New returns a Solver for the given root package, whose one real version is
@@ -121,6 +147,7 @@ func (s *Solver[P, S]) Store() *Store[P, S] { return s.st }
 // true" is to repair the partial solution before deriving anything else, which is
 // why no decision is made between the conflict and the resumption.
 func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
+	defer s.finishStats()
 	next := s.root
 
 	for round := 0; ; round++ {
@@ -151,6 +178,17 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 			return s.solution()
 		}
 		next = outcome.Package
+	}
+}
+
+// finishStats copies the counters out of the partial solution.
+func (s *Solver[P, S]) finishStats() {
+	s.Stats = s.ps.stats
+	s.Stats.LiveDependencyRecords = 0
+	for _, inc := range s.st.All() {
+		if inc.Kind() == KindDependency {
+			s.Stats.LiveDependencyRecords++
+		}
 	}
 }
 

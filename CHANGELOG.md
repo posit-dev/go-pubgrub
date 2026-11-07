@@ -9,6 +9,10 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Added
+
+- `Solver.Stats`: counters for one `Solve` (decisions, backtracks, and more). Counting only; results are unchanged.
+
 ## [0.3.0] - 2026-11-07
 
 ### Added

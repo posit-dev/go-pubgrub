@@ -253,6 +253,7 @@ func MakeDecision[P comparable, S versionset.Set[S]](
 			formatPackage(pkg), best, allowed)
 	}
 
+	ps.stats.DependenciesCalls++
 	deps, err := provider.Dependencies(pkg, best)
 	if err != nil {
 		return zero, fmt.Errorf("solver: dependencies of %s %v: %w", formatPackage(pkg), best, err)
@@ -364,6 +365,7 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 			continue
 		}
 		seen[a.Package] = true
+		ps.stats.KeyBuilds++
 
 		accumulated, ok := ps.Accumulated(a.Package)
 		if !ok || !accumulated.IsPositive() {
@@ -436,6 +438,7 @@ func preferCandidate[P comparable, S versionset.Set[S]](a, b candidate[P, S]) bo
 func classifyAssuming[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], inc *Incompatibility[P, S], pkg P, version S,
 ) (Satisfaction, P) {
+	ps.stats.PreCommitClassifications++
 	hypothetical := term.Positive(version)
 	if accumulated, ok := ps.Accumulated(pkg); ok {
 		hypothetical = accumulated.Intersect(hypothetical)

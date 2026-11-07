@@ -70,6 +70,9 @@ type PartialSolution[P comparable, S versionset.Set[S]] struct {
 	// candMemo is the last Candidates answer per package, reused while the
 	// allowed set is unchanged (Candidates must be pure in (pkg, allowed)).
 	candMemo map[P]candidate[P, S]
+
+	// stats holds the counters Solve copies into Solver.Stats.
+	stats Stats
 }
 
 func (ps *PartialSolution[P, S]) markContradicted(inc *Incompatibility[P, S]) {
@@ -224,6 +227,7 @@ func (ps *PartialSolution[P, S]) Eligible(pkg P, set S) bool {
 // non-empty, so deriving ¬t can never empty the accumulated term. Only Decide
 // can, which is why the obligation sits here.
 func (ps *PartialSolution[P, S]) Decide(pkg P, set S) {
+	ps.stats.Decisions++
 	ps.ensure()
 
 	if !ps.Eligible(pkg, set) {
@@ -470,6 +474,7 @@ func (ps *PartialSolution[P, S]) PreviousSatisfierOf(inc *Incompatibility[P, S],
 // accumulated terms are rebuilt from what remains, since intersection cannot be
 // undone incrementally.
 func (ps *PartialSolution[P, S]) BacktrackTo(level int) {
+	ps.stats.Backtracks++
 	ps.ensure()
 
 	// Clamp BOTH sides. Backtracking only ever moves backwards, so a target above
