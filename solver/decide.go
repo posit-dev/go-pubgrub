@@ -273,7 +273,7 @@ func MakeDecision[P comparable, S versionset.Set[S]](
 			depender = d.Depender
 		}
 
-		added = append(added, st.Add(NewIncompatibility(KindDependency, map[P]term.Term[S]{
+		added = append(added, st.addDependency(NewIncompatibility(KindDependency, map[P]term.Term[S]{
 			pkg:       term.Positive(depender),
 			d.Package: term.Negative(d.Allowed),
 		})))

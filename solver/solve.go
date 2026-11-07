@@ -88,6 +88,12 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// facing untrusted input has somewhere to put a bound instead of hanging.
 	MaxRounds int
 
+	// MergeDependencies (default off): when a version's dependency record names
+	// the same depender package, dependency package and required range as a live
+	// one, replace both by one record covering both versions. Fewer records are
+	// visited, but the derivation trail can differ.
+	MergeDependencies bool
+
 	// Stats is filled by Solve. Read it after Solve returns, even on error.
 	Stats Stats
 }
@@ -148,6 +154,7 @@ func (s *Solver[P, S]) Store() *Store[P, S] { return s.st }
 // why no decision is made between the conflict and the resumption.
 func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	defer s.finishStats()
+	s.st.mergeDeps = s.MergeDependencies
 	next := s.root
 
 	for round := 0; ; round++ {
@@ -184,12 +191,7 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 // finishStats copies the counters out of the partial solution.
 func (s *Solver[P, S]) finishStats() {
 	s.Stats = s.ps.stats
-	s.Stats.LiveDependencyRecords = 0
-	for _, inc := range s.st.All() {
-		if inc.Kind() == KindDependency {
-			s.Stats.LiveDependencyRecords++
-		}
-	}
+	s.Stats.LiveDependencyRecords = s.st.liveDependencyRecords()
 }
 
 // solution reads the answer off the decisions, after checking that it really is
