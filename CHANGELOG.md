@@ -9,6 +9,8 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-07
+
 ### Added
 
 - `versionset.SubsetOfer` and `versionset.Differencer`: optional interfaces a set type
