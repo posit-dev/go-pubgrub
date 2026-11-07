@@ -14,11 +14,12 @@ type askLog struct {
 	Provider[string, set]
 	last    map[string]set
 	asks    map[string]int
+	allowed map[string][]set
 	repeats []string
 }
 
 func newAskLog(p Provider[string, set]) *askLog {
-	return &askLog{Provider: p, last: map[string]set{}, asks: map[string]int{}}
+	return &askLog{Provider: p, last: map[string]set{}, asks: map[string]int{}, allowed: map[string][]set{}}
 }
 
 func (l *askLog) Candidates(pkg string, allowed set) (set, bool, int, error) {
@@ -27,6 +28,7 @@ func (l *askLog) Candidates(pkg string, allowed set) (set, bool, int, error) {
 	}
 	l.last[pkg] = allowed
 	l.asks[pkg]++
+	l.allowed[pkg] = append(l.allowed[pkg], allowed)
 	return l.Provider.Candidates(pkg, allowed)
 }
 
@@ -60,28 +62,39 @@ func TestCandidatesIsNotAskedAgainForAnUnchangedAllowedSet(t *testing.T) {
 	}
 }
 
-// TestCandidatesAnswerIsNotServedAfterAllowedChanges checks a changed allowed
-// set is asked afresh, including when it changes back to an earlier set.
+// TestCandidatesAnswerIsNotServedAfterAllowedChanges checks a changed allowed set
+// is asked afresh, including when it changes back to an earlier set.
+//
+// shared is allowed >=1. Trying mid 2 narrows it to [1,5), but mid 2 needs a
+// package that does not exist, so the solver backjumps and shared is allowed >=1
+// again. The memo then holds the [1,5) answer, so that last ask must be fresh.
 func TestCandidatesAnswerIsNotServedAfterAllowedChanges(t *testing.T) {
 	u := newUniverse().
 		with("root", 1,
-			requirement("left", versionset.AtLeast(1)),
-			requirement("mid", versionset.AtLeast(1)),
-			requirement("shared", versionset.LessThan(10))).
-		with("left", 1).
+			requirement("shared", versionset.AtLeast(1)),
+			requirement("mid", versionset.AtLeast(1))).
 		with("mid", 1).
-		with("mid", 2, requirement("shared", versionset.AtLeast(10))).
-		with("shared", 1).with("shared", 20)
+		with("mid", 2,
+			requirement("shared", versionset.LessThan(5)),
+			requirement("ghost", versionset.AtLeast(1))).
+		with("shared", 1).with("shared", 2).with("shared", 7)
 
 	log := newAskLog(u)
 	sol, err := New("root", versionset.Exactly(1), log).Solve()
 	if err != nil {
 		t.Fatalf("Solve: %v", err)
 	}
-	// shared's allowed set narrows and is then restored by the backjump; the answer
-	// must still be the one for the set in force.
-	assertSelected(t, sol, map[string]int64{"root": 1, "left": 1, "mid": 1, "shared": 1})
-	if len(log.repeats) != 0 {
-		t.Errorf("Candidates re-asked with an unchanged allowed set for %v", log.repeats)
+	// 7 is the answer for >=1; serving the [1,5) answer (2) would be stale.
+	assertSelected(t, sol, map[string]int64{"root": 1, "mid": 1, "shared": 7})
+
+	want := []set{versionset.AtLeast(1), versionset.Range(1, 5), versionset.AtLeast(1)}
+	got := log.allowed["shared"]
+	if len(got) != len(want) {
+		t.Fatalf("shared asked with %v, want %v", got, want)
+	}
+	for i := range want {
+		if !got[i].Equal(want[i]) {
+			t.Errorf("ask %d for shared used %v, want %v", i, got[i], want[i])
+		}
 	}
 }

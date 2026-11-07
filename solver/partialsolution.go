@@ -68,7 +68,7 @@ type PartialSolution[P comparable, S versionset.Set[S]] struct {
 	contradicted map[*Incompatibility[P, S]]struct{}
 
 	// candMemo is the last Candidates answer per package, reused while the
-	// allowed set is unchanged (Candidates must be deterministic in (pkg, allowed)).
+	// allowed set is unchanged (Candidates must be pure in (pkg, allowed)).
 	candMemo map[P]candidate[P, S]
 }
 

@@ -374,7 +374,7 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 
 		var next candidate[P, S]
 		if m, ok := ps.candMemo[a.Package]; ok && m.allowed.Equal(accumulated.Set()) {
-			next = m // Spike P1b: allowed set unchanged since the last ask.
+			next = m // allowed set unchanged since the last ask
 		} else {
 			best, available, rank, err := provider.Candidates(a.Package, accumulated.Set())
 			if err != nil {

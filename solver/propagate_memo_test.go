@@ -35,6 +35,22 @@ func TestPropagateRemembersContradictedIncompatibilities(t *testing.T) {
 	}
 }
 
+// TestPropagateSkipsRememberedIncompatibility plants a memo entry for an
+// incompatibility that is really satisfied: Propagate must skip it, not conflict.
+func TestPropagateSkipsRememberedIncompatibility(t *testing.T) {
+	ps := newPS()
+	st := NewStore[string, set]()
+
+	st.Add(dep("root", versionset.Exactly(1), "a", versionset.Range(1, 3)))
+	x := st.Add(NewIncompatibility(KindDerived, map[string]tm{"a": pos(versionset.Range(1, 3))}))
+
+	ps.Decide("root", versionset.Exactly(1))
+	ps.markContradicted(x)
+	if r := Propagate(ps, st, "root"); r.HasConflict() {
+		t.Fatal("Propagate examined an incompatibility it had remembered as contradicted")
+	}
+}
+
 // TestPropagateFiresAgainAfterBacktrack is the other half: an incompatibility
 // skipped as contradicted must act again once the contradiction is undone.
 func TestPropagateFiresAgainAfterBacktrack(t *testing.T) {
