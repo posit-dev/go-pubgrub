@@ -9,7 +9,24 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Added
+
+- `versionset.SubsetOfer` and `versionset.Differencer`: optional interfaces a set type
+  can implement so `IsSubsetOf` and `Difference` skip building a complement. Each must
+  agree with the complement-based answer. Sets that do not implement them are unchanged.
+
 ### Changed
+
+- Faster solving, with identical results. `Propagate` no longer re-examines an
+  incompatibility already known to hold a contradicted term (until the next
+  backtrack), and the solver reuses the last `Provider.Candidates` answer for a package
+  while its allowed set is unchanged. On one real 105-root solve these two together cut
+  6.8 s to 1.7 s.
+
+- **Contract change for `Provider` implementers.** `Candidates` must now be a pure
+  function of `(pkg, allowed)`: the same inputs give the same answer, with no side
+  effect the solver relies on. The solver may skip a call. A provider whose `Candidates`
+  answer varies for the same inputs, or that counts calls, can behave differently.
 
 - `Provider.Candidates`' contract now states three things it left to inference, all
   found by a review of the published API rather than by a failure:
