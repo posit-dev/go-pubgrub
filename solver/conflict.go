@@ -78,6 +78,15 @@ type Resolution[P comparable, S versionset.Set[S]] struct {
 func Resolve[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], st *Store[P, S], root P, conflict *Incompatibility[P, S],
 ) (Resolution[P, S], error) {
+	return resolve(ps, st, root, conflict, nil)
+}
+
+// resolve is Resolve with a hook, told the one fact analysis ends with and the
+// package it leaves open. Intermediate facts and unsolvable ends are not reported.
+func resolve[P comparable, S versionset.Set[S]](
+	ps *PartialSolution[P, S], st *Store[P, S], root P, conflict *Incompatibility[P, S],
+	learned func(blamed P, inc *Incompatibility[P, S]),
+) (Resolution[P, S], error) {
 	current := conflict
 
 	for {
@@ -141,6 +150,9 @@ func Resolve[P comparable, S versionset.Set[S]](
 			// construction), which is exactly what makes it the kind of latent hazard
 			// worth closing rather than documenting.
 			current = st.Add(current)
+			if learned != nil {
+				learned(satisfierPkg, current)
+			}
 
 			ps.BacktrackTo(previousLevel)
 			return Resolution[P, S]{Incompatibility: current, Package: satisfierPkg}, nil

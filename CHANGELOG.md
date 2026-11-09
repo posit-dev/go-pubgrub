@@ -9,6 +9,11 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Added
+
+- `Solver.ClashThreshold`: opt-in conflict-driven decision order. Packages that keep
+  turning up in conflicts are decided sooner. Zero (the default) changes nothing.
+
 ## [0.3.0] - 2026-11-07
 
 ### Added
