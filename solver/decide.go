@@ -195,9 +195,29 @@ type DecisionOutcome[P comparable, S versionset.Set[S]] struct {
 func MakeDecision[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], st *Store[P, S], provider Provider[P, S],
 ) (DecisionOutcome[P, S], error) {
+	return makeDecision(ps, st, provider, nil)
+}
+
+// decideOpts carries the opt-in conflict-reorder hooks into makeDecision. A nil
+// *decideOpts is today's behavior.
+type decideOpts[P comparable, S versionset.Set[S]] struct {
+	// tierOf ranks a package for the pick: higher is decided sooner. Nil means no tiers.
+	tierOf func(P) int
+
+	// turnedDown is told when a candidate is declined at decision time.
+	turnedDown func(pkg P, inc *Incompatibility[P, S])
+}
+
+func makeDecision[P comparable, S versionset.Set[S]](
+	ps *PartialSolution[P, S], st *Store[P, S], provider Provider[P, S], o *decideOpts[P, S],
+) (DecisionOutcome[P, S], error) {
 	var zero DecisionOutcome[P, S]
 
-	chosen, eligible, err := chooseCandidate(ps, provider)
+	var tierOf func(P) int
+	if o != nil {
+		tierOf = o.tierOf
+	}
+	chosen, eligible, err := chooseCandidate(ps, provider, tierOf)
 	if err != nil {
 		return zero, err
 	}
@@ -283,6 +303,9 @@ func MakeDecision[P comparable, S versionset.Set[S]](
 	// this exact version violate one of the requirements just added?
 	for _, inc := range added {
 		if satisfaction, _ := classifyAssuming(ps, inc, pkg, best); satisfaction == FullySatisfied {
+			if o != nil && o.turnedDown != nil {
+				o.turnedDown(pkg, inc)
+			}
 			return DecisionOutcome[P, S]{Package: pkg}, nil
 		}
 	}
@@ -305,6 +328,10 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 	best  S
 	found bool
 	rank  int
+
+	// tier is the conflict-reorder tier, set on every read and never memoized.
+	// Higher is sooner; zero for every package when the setting is off.
+	tier int
 }
 
 // chooseCandidate applies §8's eligibility and heuristic. It reports false when
@@ -339,7 +366,7 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 // package is considered on every round regardless of who wins, but Candidates is
 // only called again once that package's allowed set has changed.
 func chooseCandidate[P comparable, S versionset.Set[S]](
-	ps *PartialSolution[P, S], provider Provider[P, S],
+	ps *PartialSolution[P, S], provider Provider[P, S], tierOf func(P) int,
 ) (candidate[P, S], bool, error) {
 	var chosen candidate[P, S]
 
@@ -395,6 +422,10 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 			}
 			ps.candMemo[a.Package] = next
 		}
+		next.tier = 0
+		if tierOf != nil {
+			next.tier = tierOf(a.Package)
+		}
 		if !eligible || preferCandidate(next, chosen) {
 			chosen = next
 			eligible = true
@@ -422,10 +453,14 @@ func preferCandidate[P comparable, S versionset.Set[S]](a, b candidate[P, S]) bo
 		return !a.found
 	}
 	if !a.found {
-		// Both unavailable: keep the incumbent, so the earliest still wins.
-		return false
+		// Both unavailable: the higher tier first, else keep the incumbent so the
+		// earliest still wins.
+		return a.tier > b.tier
 	}
-	return a.rank < b.rank
+	if a.rank != b.rank {
+		return a.rank < b.rank
+	}
+	return a.tier > b.tier
 }
 
 // classifyAssuming reports how inc would classify if pkg were decided at version,
