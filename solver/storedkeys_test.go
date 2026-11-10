@@ -108,16 +108,16 @@ func checkSK(t *testing.T, name string, r skRun, order, calls string, builds int
 func TestStoredKeysA(t *testing.T) {
 	off := runSK(skUniverseA(), false, false, 0, false)
 	on := runSK(skUniverseA(), false, false, 0, true)
-	checkSK(t, "off", off, "root b a", offCalls("root@1", "b@2", "a@2"), 4)
-	checkSK(t, "on", on, "root b a", offCalls("root@1", "b@2", "a@2"), 3)
+	checkSK(t, "off", off, "root b a", dependencyCallLog("root@1", "b@2", "a@2"), 4)
+	checkSK(t, "on", on, "root b a", dependencyCallLog("root@1", "b@2", "a@2"), 3)
 	if off.sel != on.sel || off.sel != "map[a:2 b:2 root:1]" {
 		t.Errorf("selection off %s, on %s", off.sel, on.sel)
 	}
 }
 
-// offCalls formats the spec's "pkg@version" call list the way callLogProvider
+// dependencyCallLog formats the spec's "pkg@version" call list the way callLogProvider
 // logs a Dependencies call, with the version set's own text.
-func offCalls(calls ...string) string {
+func dependencyCallLog(calls ...string) string {
 	out := make([]string, len(calls))
 	for i, c := range calls {
 		pkg, v, _ := strings.Cut(c, "@")
@@ -136,15 +136,15 @@ func mustInt(s string) int64 {
 
 // Spec B: a key is kept across a decision (with StableDiscovery).
 func TestStoredKeysB(t *testing.T) {
-	checkSK(t, "off", runSK(skUniverseB(), true, false, 0, false), "root p q r", offCalls("root@1", "p@1", "q@1", "r@1"), 7)
-	checkSK(t, "on", runSK(skUniverseB(), true, false, 0, true), "root p q r", offCalls("root@1", "p@1", "q@1", "r@1"), 4)
+	checkSK(t, "off", runSK(skUniverseB(), true, false, 0, false), "root p q r", dependencyCallLog("root@1", "p@1", "q@1", "r@1"), 7)
+	checkSK(t, "on", runSK(skUniverseB(), true, false, 0, true), "root p q r", dependencyCallLog("root@1", "p@1", "q@1", "r@1"), 4)
 }
 
 // Spec C: a narrowed range makes a key stale. A kept b key would offer b@2.
 func TestStoredKeysC(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		r := runSK(skUniverseC(), false, false, 0, on)
-		checkSK(t, fmt.Sprintf("stored=%v", on), r, "root a b", offCalls("root@1", "a@1", "b@1"), 4)
+		checkSK(t, fmt.Sprintf("stored=%v", on), r, "root a b", dependencyCallLog("root@1", "a@1", "b@1"), 4)
 		if strings.Contains(r.calls, "b@2") || strings.Contains(r.calls, "D b {2}") {
 			t.Errorf("stored=%v: b@2 was offered: %s", on, r.calls)
 		}
@@ -153,15 +153,15 @@ func TestStoredKeysC(t *testing.T) {
 
 // Spec D: a mark with no new assignment makes a key stale.
 func TestStoredKeysD(t *testing.T) {
-	checkSK(t, "off", runSK(skUniverseD(), false, true, 0, false), "root m k j", offCalls("root@1", "m@1", "k@1", "j@1"), 7)
-	checkSK(t, "on", runSK(skUniverseD(), false, true, 0, true), "root m k j", offCalls("root@1", "m@1", "k@1", "j@1"), 5)
+	checkSK(t, "off", runSK(skUniverseD(), false, true, 0, false), "root m k j", dependencyCallLog("root@1", "m@1", "k@1", "j@1"), 7)
+	checkSK(t, "on", runSK(skUniverseD(), false, true, 0, true), "root m k j", dependencyCallLog("root@1", "m@1", "k@1", "j@1"), 5)
 }
 
 // Spec E: a tier change makes a key stale.
 func TestStoredKeysE(t *testing.T) {
 	for _, on := range []bool{false, true} {
 		r := runSK(fixtureA(), true, false, 1, on)
-		if r.order != "root d b c" || dependenciesOnly(r.calls) != offCalls("root@1", "b@2", "c@2", "d@2", "d@2", "b@1", "c@1") {
+		if r.order != "root d b c" || dependenciesOnly(r.calls) != dependencyCallLog("root@1", "b@2", "c@2", "d@2", "d@2", "b@1", "c@1") {
 			t.Errorf("T=1 stored=%v: order %q calls %q", on, r.order, dependenciesOnly(r.calls))
 		}
 		if r.sel != "map[b:1 c:1 d:2 root:1]" {
@@ -169,7 +169,7 @@ func TestStoredKeysE(t *testing.T) {
 		}
 		for _, th := range []int{0, 2} {
 			r := runSK(fixtureA(), true, false, th, on)
-			if r.order != "root b c d" || dependenciesOnly(r.calls) != offCalls("root@1", "b@2", "c@2", "d@2", "d@1") {
+			if r.order != "root b c d" || dependenciesOnly(r.calls) != dependencyCallLog("root@1", "b@2", "c@2", "d@2", "d@1") {
 				t.Errorf("T=%d stored=%v: order %q calls %q", th, on, r.order, dependenciesOnly(r.calls))
 			}
 		}
