@@ -135,6 +135,11 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// rank: packages marked by Dependency.Exact first, then by first-met order.
 	// It implies StableDiscovery. The zero value keeps the existing order.
 	OwnOrder bool
+
+	// StoredKeys keeps each package's decide key between rounds and rebuilds it only
+	// when stale, instead of rebuilding every key every round. Changes no decision.
+	// The zero value is off.
+	StoredKeys bool
 }
 
 // New returns a Solver for the given root package, whose one real version is
@@ -196,6 +201,9 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	s.st.mergeDeps = s.MergeDependencies
 	if s.RunningSatisfier && s.ps.rs == nil {
 		s.ps.enableRunningSatisfier()
+	}
+	if s.StoredKeys && s.ps.sk == nil {
+		s.ps.sk = newStoredKeys[P, S]()
 	}
 	next := s.root
 	ord := newPackageOrder[P](s.StableDiscovery, s.OwnOrder)
