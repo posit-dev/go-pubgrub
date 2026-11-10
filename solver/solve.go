@@ -125,6 +125,16 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// recheck makes the solver propagate every assigned package again after an
 	// undo. The spec allows either; a test runs both.
 	recheck bool
+
+	// StableDiscovery breaks rank ties by the order in which the solver first met
+	// each package in a returned dependency list, instead of by first derivation.
+	// The zero value keeps the existing order.
+	StableDiscovery bool
+
+	// OwnOrder makes the solver order packages itself and ignore the provider's
+	// rank: packages marked by Dependency.Exact first, then by first-met order.
+	// It implies StableDiscovery. The zero value keeps the existing order.
+	OwnOrder bool
 }
 
 // New returns a Solver for the given root package, whose one real version is
@@ -188,6 +198,7 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 		s.ps.enableRunningSatisfier()
 	}
 	next := s.root
+	ord := newPackageOrder[P](s.StableDiscovery, s.OwnOrder)
 
 	var tiers *tierState[P]
 	if s.ClashThreshold > 0 {
@@ -217,6 +228,13 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 		if tiers != nil {
 			opts.tierOf = tiers.tierOf
 		}
+	}
+
+	if ord != nil {
+		if opts == nil {
+			opts = &decideOpts[P, S]{}
+		}
+		opts.ord = ord
 	}
 
 	// settle propagates from pkg and resolves any conflict. It reports whether

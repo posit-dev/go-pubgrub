@@ -189,7 +189,7 @@ func TestPreferCandidate(t *testing.T) {
 		{"unavailable: equal tier keeps the incumbent", cand(false, 0, tierSecond), cand(false, 0, tierSecond), false},
 	}
 	for _, c := range cases {
-		if got := preferCandidate(c.a, c.b); got != c.want {
+		if got := preferCandidate(c.a, c.b, nil); got != c.want {
 			t.Errorf("%s: preferCandidate = %v, want %v", c.name, got, c.want)
 		}
 	}

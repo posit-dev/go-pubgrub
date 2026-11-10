@@ -149,6 +149,10 @@ type Dependency[P comparable, S versionset.Set[S]] struct {
 	// it would state the requirement about versions that do not have it while
 	// failing to state it about the one that does.
 	Depender S
+
+	// Exact is the provider's statement that Allowed is exactly one version. The
+	// solver cannot check it, and reads it only when Solver.OwnOrder is on.
+	Exact bool
 }
 
 // DecisionOutcome is the result of one turn of §8's decision making.
@@ -206,6 +210,9 @@ type decideOpts[P comparable, S versionset.Set[S]] struct {
 
 	// turnedDown is told when a candidate is declined at decision time.
 	turnedDown func(pkg P, inc *Incompatibility[P, S])
+
+	// ord is the StableDiscovery/OwnOrder state. Nil means both are off.
+	ord *packageOrder[P]
 }
 
 func makeDecision[P comparable, S versionset.Set[S]](
@@ -214,10 +221,12 @@ func makeDecision[P comparable, S versionset.Set[S]](
 	var zero DecisionOutcome[P, S]
 
 	var tierOf func(P) int
+	var ord *packageOrder[P]
 	if o != nil {
 		tierOf = o.tierOf
+		ord = o.ord
 	}
-	chosen, eligible, err := chooseCandidate(ps, provider, tierOf)
+	chosen, eligible, err := chooseCandidate(ps, provider, tierOf, ord)
 	if err != nil {
 		return zero, err
 	}
@@ -278,6 +287,8 @@ func makeDecision[P comparable, S versionset.Set[S]](
 	if err != nil {
 		return zero, fmt.Errorf("solver: dependencies of %s %v: %w", formatPackage(pkg), best, err)
 	}
+
+	observeDeps(ord, pkg, deps)
 
 	// §8: materialize the dependencies BEFORE deciding, so the pre-commit check
 	// below can see them.
@@ -366,7 +377,7 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 // package is considered on every round regardless of who wins, but Candidates is
 // only called again once that package's allowed set has changed.
 func chooseCandidate[P comparable, S versionset.Set[S]](
-	ps *PartialSolution[P, S], provider Provider[P, S], tierOf func(P) int,
+	ps *PartialSolution[P, S], provider Provider[P, S], tierOf func(P) int, ord *packageOrder[P],
 ) (candidate[P, S], bool, error) {
 	var chosen candidate[P, S]
 
@@ -426,7 +437,7 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 		if tierOf != nil {
 			next.tier = tierOf(a.Package)
 		}
-		if !eligible || preferCandidate(next, chosen) {
+		if !eligible || preferCandidate(next, chosen, ord) {
 			chosen = next
 			eligible = true
 		}
@@ -435,7 +446,8 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 	return chosen, eligible, nil
 }
 
-// preferCandidate reports whether a should be worked on before b.
+// preferCandidate reports whether a should be worked on before b. A non-nil ord
+// changes the tie-break (and, for OwnOrder, the rank); see packageOrder.
 //
 // ⚠️ Unavailability comes FIRST, ahead of every available package, regardless of
 // rank. Before the found/rank split this was implicit: unavailability was a count
@@ -448,9 +460,12 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 //
 // Among available packages it is strictly-fewer, so the earliest of a rank tie
 // wins and the caller's chronological iteration is what breaks it.
-func preferCandidate[P comparable, S versionset.Set[S]](a, b candidate[P, S]) bool {
+func preferCandidate[P comparable, S versionset.Set[S]](a, b candidate[P, S], ord *packageOrder[P]) bool {
 	if a.found != b.found {
 		return !a.found
+	}
+	if ord != nil {
+		return ord.preferTiered(a.pkg, a.rank, a.tier, b.pkg, b.rank, b.tier, a.found)
 	}
 	if !a.found {
 		// Both unavailable: the higher tier first, else keep the incumbent so the
