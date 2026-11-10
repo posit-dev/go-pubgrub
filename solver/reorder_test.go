@@ -265,3 +265,13 @@ func TestTierRules(t *testing.T) {
 		mustEqual(t, "a", tier(ts, "a"), tierDefault)
 	})
 }
+
+// Fixture E at T=1: the first clash earns a promotion and two more clashes
+// follow in conflicting rounds. None of it may apply until the conflict-free
+// point, so the clashes match the off run and all tiers show up together.
+func TestPromotionWaitsForAConflictFreePoint(t *testing.T) {
+	o := observe(fixtureE(), 1, false)
+	mustEqual(t, "clashes", o.clashes, wantClashesE)
+	mustEqual(t, "picks", o.picks,
+		[]string{"root/0", "a/0", "b/0", "c/0", "d/0", "d/2", "b/2", "c/1", "e/1"})
+}

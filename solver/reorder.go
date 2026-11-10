@@ -122,7 +122,9 @@ func undoForPromotion[P comparable, S versionset.Set[S]](ps *PartialSolution[P, 
 	return false
 }
 
-// incompatibilityPackages lists the packages inc names, other than skip.
+// incompatibilityPackages lists the packages inc names, other than skip, in
+// map order (random). Fine: tallies ignore order and the undo picks the
+// earliest decision.
 func incompatibilityPackages[P comparable, S versionset.Set[S]](inc *Incompatibility[P, S], skip P) []P {
 	out := make([]P, 0, inc.Len())
 	for p := range inc.terms {
