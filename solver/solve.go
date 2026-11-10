@@ -64,6 +64,16 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// on for this in general, but it is asserted rather than derived, so a caller
 	// facing untrusted input has somewhere to put a bound instead of hanging.
 	MaxRounds int
+
+	// StableDiscovery breaks rank ties by the order in which the solver first met
+	// each package in a returned dependency list, instead of by first derivation.
+	// The zero value keeps the existing order.
+	StableDiscovery bool
+
+	// OwnOrder makes the solver order packages itself and ignore the provider's
+	// rank: packages marked by Dependency.Exact first, then by first-met order.
+	// It implies StableDiscovery. The zero value keeps the existing order.
+	OwnOrder bool
 }
 
 // New returns a Solver for the given root package, whose one real version is
@@ -122,6 +132,7 @@ func (s *Solver[P, S]) Store() *Store[P, S] { return s.st }
 // why no decision is made between the conflict and the resumption.
 func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	next := s.root
+	ord := newPackageOrder[P](s.StableDiscovery, s.OwnOrder)
 
 	for round := 0; ; round++ {
 		if s.MaxRounds > 0 && round >= s.MaxRounds {
@@ -143,7 +154,7 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 			continue
 		}
 
-		outcome, err := MakeDecision(s.ps, s.st, s.provider)
+		outcome, err := makeDecision(s.ps, s.st, s.provider, ord)
 		if err != nil {
 			return nil, err
 		}

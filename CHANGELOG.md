@@ -9,6 +9,13 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Added
+
+- `Solver.StableDiscovery`: break rank ties by the order the solver first met each
+  package in a returned dependency list, not by first derivation. Off by default.
+- `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring
+  provider rank, with packages a provider marks `Exact` first. Off by default.
+
 ## [0.3.0] - 2026-11-07
 
 ### Added
