@@ -465,7 +465,7 @@ func preferCandidate[P comparable, S versionset.Set[S]](a, b candidate[P, S], or
 		return !a.found
 	}
 	if ord != nil {
-		return ord.preferTiered(a.pkg, a.rank, a.tier, b.pkg, b.rank, b.tier, a.found)
+		return ord.prefer(a.pkg, a.rank, a.tier, b.pkg, b.rank, b.tier, a.found)
 	}
 	if !a.found {
 		// Both unavailable: the higher tier first, else keep the incumbent so the

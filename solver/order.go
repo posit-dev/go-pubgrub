@@ -61,15 +61,10 @@ func (o *packageOrder[P]) before(a, b P) bool {
 }
 
 // prefer reports whether a should be worked on before b, when both are available
-// or both are not (aFound says which). With OwnOrder: marked first, then smaller
-// place, rank never read. With StableDiscovery only: lower rank, then smaller place.
-func (o *packageOrder[P]) prefer(a P, rankA int, b P, rankB int, aFound bool) bool {
-	return o.preferTiered(a, rankA, 0, b, rankB, 0, aFound)
-}
-
-// preferTiered is prefer with ClashThreshold's tier between the mark/rank step
-// and the place: higher tier first. Tiers of 0 on both sides play no part.
-func (o *packageOrder[P]) preferTiered(a P, rankA, tierA int, b P, rankB, tierB int, aFound bool) bool {
+// or both are not (aFound says which). With OwnOrder: marked first, then higher
+// tier, then smaller place, rank never read. With StableDiscovery only: lower
+// rank, then higher tier, then smaller place. Tiers of 0 play no part.
+func (o *packageOrder[P]) prefer(a P, rankA, tierA int, b P, rankB, tierB int, aFound bool) bool {
 	if aFound && !o.own && rankA != rankB {
 		return rankA < rankB
 	}
