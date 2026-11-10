@@ -133,8 +133,8 @@ func dependencyPair[P comparable, S versionset.Set[S]](inc *Incompatibility[P, S
 }
 
 // addDependency is Add for a dependency record. With mergeDeps on, a record that
-// asks the same range of the same package as a live one is folded into it: the
-// result names the union of both dependers, and the older record leaves the
+// asks the same range of the same dependency package as a live one from the
+// same depender package is folded into it: the result names the union of both dependers, and the older record leaves the
 // package index (it stays in All, since earlier derivations point at it).
 func (st *Store[P, S]) addDependency(inc *Incompatibility[P, S]) *Incompatibility[P, S] {
 	from, to, ok := dependencyPair(inc)

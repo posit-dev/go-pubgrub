@@ -12,7 +12,7 @@ mistaken for a safe patch upgrade.
 ### Added
 
 - `Solver.Stats`: counters for one `Solve` (decisions, backtracks, and more). Counting only; results are unchanged.
-- `Solver.MergeDependencies` (default off): fold dependency records of several versions of one package that need the same range into one record. The search path can differ.
+- `Solver.MergeDependencies` (default off): fold dependency records of several versions of one package that need the same range of the same dependency package into one record. The search path can differ.
 - `Solver.RunningSatisfier` (default off): keep running terms so satisfier queries need not rescan the assignments. Same answers.
 
 ## [0.3.0] - 2026-11-07
