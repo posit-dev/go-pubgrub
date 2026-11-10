@@ -71,8 +71,8 @@ type PartialSolution[P comparable, S versionset.Set[S]] struct {
 	// allowed set is unchanged (Candidates must be pure in (pkg, allowed)).
 	candMemo map[P]candidate[P, S]
 
-	// sk is nil unless Solver.StoredKeys is set.
-	sk *storedKeys[P, S]
+	// keyBook is nil unless Solver.StoredKeys is set.
+	keyBook *keyCache[P, S]
 
 	// rs is nil unless Solver.RunningSatisfier is set.
 	rs *runningState[P, S]
@@ -273,8 +273,8 @@ func (ps *PartialSolution[P, S]) Derive(pkg P, t term.Term[S], cause *Incompatib
 // append records the assignment and folds it into the accumulated term.
 func (ps *PartialSolution[P, S]) append(a Assignment[P, S]) {
 	ps.assignments = append(ps.assignments, a)
-	if ps.sk != nil {
-		ps.sk.added(a, len(ps.assignments)-1)
+	if ps.keyBook != nil {
+		ps.keyBook.added(a, len(ps.assignments)-1)
 	}
 	if ps.rs != nil {
 		ps.noteRunning(a, len(ps.assignments)-1)
@@ -521,8 +521,8 @@ func (ps *PartialSolution[P, S]) BacktrackTo(level int) {
 	if ps.rs != nil {
 		ps.truncateRunning(ps.assignments[len(kept):], len(kept))
 	}
-	if ps.sk != nil {
-		ps.sk.removed(ps.assignments[len(kept):], len(kept))
+	if ps.keyBook != nil {
+		ps.keyBook.removed(ps.assignments[len(kept):], len(kept))
 	}
 	ps.assignments = kept
 	ps.level = level

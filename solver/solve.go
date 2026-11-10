@@ -202,8 +202,8 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	if s.RunningSatisfier && s.ps.rs == nil {
 		s.ps.enableRunningSatisfier()
 	}
-	if s.StoredKeys && s.ps.sk == nil {
-		s.ps.sk = newStoredKeys[P, S]()
+	if s.StoredKeys && s.ps.keyBook == nil {
+		s.ps.keyBook = newKeyCache[P, S]()
 	}
 	next := s.root
 	ord := newPackageOrder[P](s.StableDiscovery, s.OwnOrder)

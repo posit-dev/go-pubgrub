@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/posit-dev/go-pubgrub/term"
 	"github.com/posit-dev/go-pubgrub/versionset"
 )
 
@@ -270,7 +271,39 @@ func TestStoredKeysOffMakesNoState(t *testing.T) {
 	if _, err := s.Solve(); err != nil {
 		t.Fatal(err)
 	}
-	if s.ps.sk != nil {
+	if s.ps.keyBook != nil {
 		t.Error("stored-key state exists with the setting off")
 	}
+}
+
+// A tier change with no assignment about the package makes its key stale (spec
+// 3d). Drives chooseCached directly, moving the tier between rounds.
+func TestStoredKeysTierChangeRebuildsKey(t *testing.T) {
+	u := newUniverse().with("x", 1).with("y", 1)
+	ps := NewPartialSolution[string, set]()
+	ps.keyBook = newKeyCache[string, set]()
+	ps.Derive("x", term.Positive(versionset.AtLeast(1)), nil)
+	ps.Derive("y", term.Positive(versionset.AtLeast(1)), nil)
+	ord := newPackageOrder[string](true, false)
+	ord.place("x")
+	ord.place("y")
+	tier := map[string]int{}
+	tierOf := func(p string) int { return tier[p] }
+
+	round := func(want string, wantBuilds int) {
+		t.Helper()
+		c, ok, err := chooseCached(ps, u, tierOf, ord)
+		if err != nil || !ok {
+			t.Fatalf("chooseCached: ok=%v err=%v", ok, err)
+		}
+		if c.pkg != want || ps.stats.KeyBuilds != wantBuilds {
+			t.Errorf("picked %s with %d key builds, want %s with %d", c.pkg, ps.stats.KeyBuilds, want, wantBuilds)
+		}
+	}
+	round("x", 2) // both keys built; x has the earlier place
+	round("x", 2) // nothing changed: no rebuild
+	tier["y"] = 1
+	round("y", 3) // only y's tier changed: y rebuilt and now wins
+	tier["y"] = 0
+	round("x", 4) // tier back: y rebuilt again
 }

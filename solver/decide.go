@@ -379,8 +379,8 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 func chooseCandidate[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], provider Provider[P, S], tierOf func(P) int, ord *packageOrder[P],
 ) (candidate[P, S], bool, error) {
-	if ps.sk != nil {
-		return chooseStored(ps, provider, tierOf, ord)
+	if ps.keyBook != nil {
+		return chooseCached(ps, provider, tierOf, ord)
 	}
 	var chosen candidate[P, S]
 
