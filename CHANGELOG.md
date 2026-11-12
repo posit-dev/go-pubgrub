@@ -14,6 +14,12 @@ mistaken for a safe patch upgrade.
 - `Solver.Stats`: counters for one `Solve` (decisions, backtracks, and more). Counting only; results are unchanged.
 - `Solver.MergeDependencies` (default off): fold dependency records of several versions of one package that need the same range of the same dependency package into one record. The search path can differ.
 - `Solver.RunningSatisfier` (default off): keep running terms so satisfier queries need not rescan the assignments. Same answers.
+- `Solver.ClashThreshold`: opt-in conflict-driven decision order. Packages that keep
+  turning up in conflicts are decided sooner. Zero (the default) changes nothing.
+- `Solver.StableDiscovery`: break rank ties by the order the solver first met each
+  package in a returned dependency list, not by first derivation. Off by default.
+- `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring
+  provider rank, with packages a provider marks `Exact` first. Off by default.
 
 ## [0.3.0] - 2026-11-07
 

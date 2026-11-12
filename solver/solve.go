@@ -101,6 +101,40 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 
 	// Stats is filled by Solve. Read it after Solve returns, even on error.
 	Stats Stats
+
+	// ClashThreshold turns on a conflict-driven decision order when positive. Zero,
+	// the default, and any negative value leave the solver exactly as it is without
+	// it: same decisions, same provider calls, same learned facts.
+	//
+	// When positive, a package that takes part in this many conflicts, in either
+	// role, is decided sooner than packages that have not. A conflict names one
+	// blamed package and the others involved: a version turned down at decision
+	// time, or the fact conflict analysis ends with. Reaching the count as the
+	// blamed package puts a package in the first tier; reaching it as an involved
+	// one puts it in the second, and a second-tier package that was already decided
+	// has that decision, and all later ones, undone. Learned facts are kept, and
+	// tiers last for the one solve. The order only changes which of several legal
+	// answers is found first.
+	ClashThreshold int
+
+	// Test hooks. Both are unexported on purpose: the order is observable only
+	// through the result and the provider's calls.
+	clashHook func(clash[P])
+	pickHook  func(pkg P, tier int)
+
+	// recheck makes the solver propagate every assigned package again after an
+	// undo. The spec allows either; a test runs both.
+	recheck bool
+
+	// StableDiscovery breaks rank ties by the order in which the solver first met
+	// each package in a returned dependency list, instead of by first derivation.
+	// The zero value keeps the existing order.
+	StableDiscovery bool
+
+	// OwnOrder makes the solver order packages itself and ignore the provider's
+	// rank: packages marked by Dependency.Exact first, then by first-met order.
+	// It implies StableDiscovery. The zero value keeps the existing order.
+	OwnOrder bool
 }
 
 // New returns a Solver for the given root package, whose one real version is
@@ -164,33 +198,108 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 		s.ps.enableRunningSatisfier()
 	}
 	next := s.root
+	ord := newPackageOrder[P](s.StableDiscovery, s.OwnOrder)
+
+	var tiers *tierState[P]
+	if s.ClashThreshold > 0 {
+		tiers = newTierState(s.ClashThreshold, s.root)
+	}
+	var opts *decideOpts[P, S] // nil keeps the off path on today's code
+
+	// report notes one clash: to the test hook first, then to the tallies.
+	report := func(blamed P, involved []P, kind clashKind) {
+		if s.clashHook != nil {
+			s.clashHook(clash[P]{blamed: blamed, involved: involved, kind: kind})
+		}
+		if tiers != nil {
+			tiers.record(blamed, involved)
+		}
+	}
+	var learned func(P, *Incompatibility[P, S])
+	if tiers != nil || s.clashHook != nil {
+		learned = func(blamed P, inc *Incompatibility[P, S]) {
+			report(blamed, incompatibilityPackages(inc, blamed), clashLearned)
+		}
+		opts = &decideOpts[P, S]{
+			turnedDown: func(pkg P, inc *Incompatibility[P, S]) {
+				report(pkg, incompatibilityPackages(inc, pkg), clashTurnedDown)
+			},
+		}
+		if tiers != nil {
+			opts.tierOf = tiers.tierOf
+		}
+	}
+
+	if ord != nil {
+		if opts == nil {
+			opts = &decideOpts[P, S]{}
+		}
+		opts.ord = ord
+	}
+
+	// settle propagates from pkg and resolves any conflict. It reports whether
+	// there was one, and where to resume if so.
+	settle := func(pkg P) (bool, P, error) {
+		result := Propagate(s.ps, s.st, pkg)
+		if !result.HasConflict() {
+			return false, pkg, nil
+		}
+		resolution, err := resolve(s.ps, s.st, s.root, result.Conflict, learned)
+		if err != nil {
+			return true, pkg, err
+		}
+		if resolution.Unsolvable {
+			return true, pkg, &Unsolvable[P, S]{RootCause: resolution.Incompatibility}
+		}
+		return true, resolution.Package, nil
+	}
 
 	for round := 0; ; round++ {
 		if s.MaxRounds > 0 && round >= s.MaxRounds {
 			return nil, fmt.Errorf("solver: gave up after %d rounds without settling", round)
 		}
 
-		if result := Propagate(s.ps, s.st, next); result.HasConflict() {
-			resolution, err := Resolve(s.ps, s.st, s.root, result.Conflict)
-			if err != nil {
-				return nil, err
-			}
-			if resolution.Unsolvable {
-				return nil, &Unsolvable[P, S]{RootCause: resolution.Incompatibility}
-			}
-
-			// Resume on the package whose term conflict resolution left open,
-			// without making a decision first.
-			next = resolution.Package
+		// Resume on the package whose term conflict resolution left open,
+		// without making a decision first.
+		conflicted, resume, err := settle(next)
+		if err != nil {
+			return nil, err
+		}
+		if conflicted {
+			next = resume
 			continue
 		}
 
-		outcome, err := MakeDecision(s.ps, s.st, s.provider)
+		if tiers != nil && undoForPromotion(s.ps, tiers.promote()) && s.recheck {
+			again := false
+			for _, p := range assignedPackages(s.ps) {
+				conflicted, resume, err = settle(p)
+				if err != nil {
+					return nil, err
+				}
+				if conflicted {
+					next, again = resume, true
+					break
+				}
+			}
+			if again {
+				continue
+			}
+		}
+
+		outcome, err := makeDecision(s.ps, s.st, s.provider, opts)
 		if err != nil {
 			return nil, err
 		}
 		if outcome.Done {
 			return s.solution()
+		}
+		if s.pickHook != nil {
+			tier := tierDefault
+			if tiers != nil {
+				tier = tiers.tierOf(outcome.Package)
+			}
+			s.pickHook(outcome.Package, tier)
 		}
 		next = outcome.Package
 	}
@@ -200,6 +309,19 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 func (s *Solver[P, S]) finishStats() {
 	s.Stats = s.ps.stats
 	s.Stats.LiveDependencyRecords = s.st.liveDependencyRecords()
+}
+
+// assignedPackages lists each package with an assignment, oldest first.
+func assignedPackages[P comparable, S versionset.Set[S]](ps *PartialSolution[P, S]) []P {
+	seen := map[P]bool{}
+	var out []P
+	for _, a := range ps.Assignments() {
+		if !seen[a.Package] {
+			seen[a.Package] = true
+			out = append(out, a.Package)
+		}
+	}
+	return out
 }
 
 // solution reads the answer off the decisions, after checking that it really is
