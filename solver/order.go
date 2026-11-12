@@ -45,15 +45,27 @@ func observeDeps[P comparable, S versionset.Set[S]](o *packageOrder[P], pkg P, d
 	}
 }
 
+// pkgState is what prefer reads about one package besides its rank.
+type pkgState struct {
+	marked bool
+	placed bool
+	place  int
+	tier   int
+}
+
+// stateOf reads pkg's current state, with the given tier.
+func (o *packageOrder[P]) stateOf(pkg P, tier int) pkgState {
+	place, placed := o.places[pkg]
+	return pkgState{marked: o.marked[pkg], placed: placed, place: place, tier: tier}
+}
+
 // before reports whether a has a smaller place than b. A package with no place
 // goes after every package with one.
-func (o *packageOrder[P]) before(a, b P) bool {
-	pa, okA := o.places[a]
-	pb, okB := o.places[b]
+func (a pkgState) before(b pkgState) bool {
 	switch {
-	case okA && okB:
-		return pa < pb
-	case okA:
+	case a.placed && b.placed:
+		return a.place < b.place
+	case a.placed:
 		return true
 	default:
 		return false
@@ -65,14 +77,27 @@ func (o *packageOrder[P]) before(a, b P) bool {
 // tier, then smaller place, rank never read. With StableDiscovery only: lower
 // rank, then higher tier, then smaller place. Tiers of 0 play no part.
 func (o *packageOrder[P]) prefer(a P, rankA, tierA int, b P, rankB, tierB int, aFound bool) bool {
+	return o.preferStates(o.stateOf(a, tierA), rankA, o.stateOf(b, tierB), rankB, aFound)
+}
+
+// preferStates is prefer on states read earlier, as a stored key holds them.
+func (o *packageOrder[P]) preferStates(a pkgState, rankA int, b pkgState, rankB int, aFound bool) bool {
 	if aFound && !o.own && rankA != rankB {
 		return rankA < rankB
 	}
-	if o.own && o.marked[a] != o.marked[b] {
-		return o.marked[a]
+	if o.own && a.marked != b.marked {
+		return a.marked
 	}
-	if tierA != tierB {
-		return tierA > tierB
+	if a.tier != b.tier {
+		return a.tier > b.tier
 	}
-	return o.before(a, b)
+	return a.before(b)
+}
+
+// stateOfOrZero is stateOf, and the zero state for a nil o.
+func (o *packageOrder[P]) stateOfOrZero(pkg P, tier int) pkgState {
+	if o == nil {
+		return pkgState{tier: tier}
+	}
+	return o.stateOf(pkg, tier)
 }

@@ -379,6 +379,9 @@ type candidate[P comparable, S versionset.Set[S]] struct {
 func chooseCandidate[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], provider Provider[P, S], tierOf func(P) int, ord *packageOrder[P],
 ) (candidate[P, S], bool, error) {
+	if ps.keyBook != nil {
+		return chooseCached(ps, provider, tierOf, ord)
+	}
 	var chosen candidate[P, S]
 
 	// Named for what it means to the caller — some package was eligible to work on
@@ -412,26 +415,9 @@ func chooseCandidate[P comparable, S versionset.Set[S]](
 			continue
 		}
 
-		var next candidate[P, S]
-		if m, ok := ps.candMemo[a.Package]; ok && m.allowed.Equal(accumulated.Set()) {
-			next = m // allowed set unchanged since the last ask
-		} else {
-			best, available, rank, err := provider.Candidates(a.Package, accumulated.Set())
-			if err != nil {
-				return candidate[P, S]{}, false, fmt.Errorf("solver: candidates for %s: %w",
-					formatPackage(a.Package), err)
-			}
-			next = candidate[P, S]{
-				pkg:     a.Package,
-				allowed: accumulated.Set(),
-				best:    best,
-				found:   available,
-				rank:    rank,
-			}
-			if ps.candMemo == nil {
-				ps.candMemo = make(map[P]candidate[P, S])
-			}
-			ps.candMemo[a.Package] = next
+		next, err := askProvider(ps, provider, a.Package, accumulated.Set())
+		if err != nil {
+			return candidate[P, S]{}, false, err
 		}
 		next.tier = 0
 		if tierOf != nil {

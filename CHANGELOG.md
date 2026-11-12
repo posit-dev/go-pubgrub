@@ -20,6 +20,7 @@ mistaken for a safe patch upgrade.
   package in a returned dependency list, not by first derivation. Off by default.
 - `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring
   provider rank, with packages a provider marks `Exact` first. Off by default.
+- `Solver.StoredKeys`: keep each package's decide key between rounds and rebuild only stale ones. Same decisions. Off by default.
 
 ## [0.3.0] - 2026-11-07
 
