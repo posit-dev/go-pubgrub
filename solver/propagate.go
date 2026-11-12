@@ -159,6 +159,7 @@ func Propagate[P comparable, S versionset.Set[S]](
 		delete(queued, pkg)
 
 		for _, inc := range st.Mentioning(pkg) {
+			ps.stats.PropagateVisits++
 			// A contradicted term stays contradicted until the partial solution
 			// is truncated, so those incompatibilities are not re-examined.
 			if _, dead := ps.contradicted[inc]; dead {
