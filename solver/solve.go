@@ -117,6 +117,12 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// answers is found first.
 	ClashThreshold int
 
+	// ClashFirst, with ClashThreshold positive, compares a package's tier before its
+	// rank (version count), so a package that keeps clashing is decided before a
+	// package with fewer versions. Ignored when ClashThreshold is not positive. Off
+	// by default; the order only changes which of several legal answers is found.
+	ClashFirst bool
+
 	// Test hooks. Both are unexported on purpose: the order is observable only
 	// through the result and the provider's calls.
 	clashHook func(clash[P])
@@ -207,6 +213,12 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	}
 	next := s.root
 	ord := newPackageOrder[P](s.StableDiscovery, s.OwnOrder)
+	if s.ClashFirst && s.ClashThreshold > 0 {
+		if ord == nil {
+			ord = &packageOrder[P]{places: map[P]int{}, marked: map[P]bool{}}
+		}
+		ord.tierFirst = true
+	}
 
 	var tiers *tierState[P]
 	if s.ClashThreshold > 0 {
