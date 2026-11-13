@@ -75,6 +75,9 @@ func IsSubsetOf[S Set[S]](a, b S) bool {
 
 // IsDisjointFrom reports whether a and b share no versions.
 func IsDisjointFrom[S Set[S]](a, b S) bool {
+	if f, ok := any(a).(DisjointFromer[S]); ok {
+		return f.IsDisjointFrom(b)
+	}
 	return a.Intersect(b).IsEmpty()
 }
 
@@ -90,6 +93,12 @@ func Difference[S Set[S]](a, b S) S {
 // a.Intersect(b.Complement()).IsEmpty().
 type SubsetOfer[S any] interface {
 	IsSubsetOf(other S) bool
+}
+
+// DisjointFromer is an optional fast path for IsDisjointFrom. It must agree
+// with a.Intersect(b).IsEmpty().
+type DisjointFromer[S any] interface {
+	IsDisjointFrom(other S) bool
 }
 
 // Differencer is an optional fast path for Difference. It must agree with

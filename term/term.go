@@ -165,25 +165,58 @@ func (t Term[S]) Union(other Term[S]) Term[S] {
 //
 // The implementation reduces to set containment via the two degenerate terms.
 // "This term forces other true" is exactly "this term and NOT other cannot hold
-// together", and likewise for false — which means Relation needs no case
-// analysis over the four polarity combinations, and cannot disagree with
-// Intersect. Deriving it this way is deliberate: hand-written case analysis over
-// four combinations is where an implementation of this algebra typically goes
-// wrong, and the errors are silent.
+// together", and likewise for false. Relation itself has no case analysis over
+// the polarity combinations: hand-written, that is where an implementation of
+// this algebra typically goes wrong, and the errors are silent.
+//
+// Both tests go through Excludes, which answers without building the
+// intersection. It is the one place the cases are written out, and
+// TestExcludesMatchesIntersect holds it to Intersect.
 func (t Term[S]) Relation(other Term[S]) Relation {
 	switch {
-	case t.Intersect(other.Negate()).IsAlwaysFalse():
+	case t.Excludes(other.Negate()):
 		return Satisfied
-	case t.Intersect(other).IsAlwaysFalse():
+	case t.Excludes(other):
 		return Contradicted
 	default:
 		return Inconclusive
 	}
 }
 
+// Excludes reports whether the two terms cannot hold together. It is exactly
+// t.Intersect(other).IsAlwaysFalse(), without building the intersection.
+//
+// Read each case off Intersect, then ask whether the result is Positive(∅):
+//
+//	Positive(a) ∧ Positive(b) = Positive(a ∩ b)   false iff a and b are disjoint
+//	Positive(a) ∧ Negative(b) = Positive(a \ b)   false iff a ⊆ b
+//	Negative(a) ∧ Positive(b) = Positive(b \ a)   false iff b ⊆ a
+//	Negative(a) ∧ Negative(b) = Negative(a ∪ b)   never: absence satisfies it
+func (t Term[S]) Excludes(other Term[S]) bool {
+	switch {
+	case !t.negative && !other.negative:
+		return versionset.IsDisjointFrom(t.set, other.set)
+	case !t.negative && other.negative:
+		return isSubsetOf(t.set, other.set)
+	case t.negative && !other.negative:
+		return isSubsetOf(other.set, t.set)
+	default:
+		return false
+	}
+}
+
+// isSubsetOf is "a \ b is empty". A set without the SubsetOfer fast path takes
+// the same Difference call Intersect makes, so its answer cannot move.
+func isSubsetOf[S versionset.Set[S]](a, b S) bool {
+	if f, ok := any(a).(versionset.SubsetOfer[S]); ok {
+		return f.IsSubsetOf(b)
+	}
+	return versionset.Difference(a, b).IsEmpty()
+}
+
 // Satisfies reports whether this term forces other true.
 func (t Term[S]) Satisfies(other Term[S]) bool {
-	return t.Relation(other) == Satisfied
+	return t.Excludes(other.Negate())
 }
 
 // Contradicts reports whether this term forces other false.
