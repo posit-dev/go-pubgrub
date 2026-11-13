@@ -3,6 +3,7 @@
 package solver
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/posit-dev/go-pubgrub/term"
@@ -37,6 +38,24 @@ type Unsolvable[P comparable, S versionset.Set[S]] struct {
 func (e *Unsolvable[P, S]) Error() string {
 	return fmt.Sprintf("solver: no solution exists; root cause %v", e.RootCause)
 }
+
+// ErrMaxConflicts is what errors.Is matches when Solver.MaxConflicts ends a
+// solve. It says the solver stopped, not that no solution exists.
+var ErrMaxConflicts = errors.New("solver: conflict limit reached")
+
+// MaxConflictsError is returned when a solve reaches Solver.MaxConflicts.
+type MaxConflictsError struct {
+	// Limit is the MaxConflicts value that was reached.
+	Limit int
+}
+
+// Error implements error.
+func (e *MaxConflictsError) Error() string {
+	return fmt.Sprintf("solver: gave up after %d conflicts", e.Limit)
+}
+
+// Unwrap lets errors.Is match ErrMaxConflicts.
+func (e *MaxConflictsError) Unwrap() error { return ErrMaxConflicts }
 
 // Stats counts work done by one Solve. It is filled however Solve returns,
 // including Unsolvable and error returns, and counting never changes behavior.
@@ -87,6 +106,14 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// on for this in general, but it is asserted rather than derived, so a caller
 	// facing untrusted input has somewhere to put a bound instead of hanging.
 	MaxRounds int
+
+	// MaxConflicts bounds how many conflicts (Stats.Backtracks) the solve may
+	// resolve before giving up with a *MaxConflictsError. Zero means no bound.
+	//
+	// Unlike MaxRounds it does not count the decisions made again after each
+	// backjump, so it suits large dependency sets. If both are set, the first
+	// one reached ends the solve.
+	MaxConflicts int
 
 	// MergeDependencies (default off): when a version's dependency record names
 	// the same depender package, dependency package and required range as a live
@@ -278,6 +305,9 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	for round := 0; ; round++ {
 		if s.MaxRounds > 0 && round >= s.MaxRounds {
 			return nil, fmt.Errorf("solver: gave up after %d rounds without settling", round)
+		}
+		if s.MaxConflicts > 0 && s.ps.stats.Backtracks >= s.MaxConflicts {
+			return nil, &MaxConflictsError{Limit: s.MaxConflicts}
 		}
 
 		// Resume on the package whose term conflict resolution left open,

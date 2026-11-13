@@ -11,6 +11,7 @@ mistaken for a safe patch upgrade.
 
 ### Added
 
+- `Solver.MaxConflicts` (default 0, off): give up after that many conflicts (`Stats.Backtracks`) with `*MaxConflictsError`, matched by `errors.Is(err, ErrMaxConflicts)`. `MaxRounds` also counts decisions made again after each backjump, so it can stop a large solve after few conflicts. If both are set, the first one reached wins.
 - `Solver.Stats`: counters for one `Solve` (decisions, backtracks, and more). Counting only; results are unchanged.
 - `Solver.MergeDependencies` (default off): fold dependency records of several versions of one package that need the same range of the same dependency package into one record. The search path can differ.
 - `Solver.RunningSatisfier` (default off): keep running terms so satisfier queries need not rescan the assignments. Same answers.
