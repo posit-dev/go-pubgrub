@@ -124,3 +124,45 @@ func TestMaxRoundsAndMaxConflictsFirstHitWins(t *testing.T) {
 		}
 	})
 }
+
+// The limit is reached, not exceeded: N conflicts with work still to do fails,
+// N+1 succeeds.
+func TestMaxConflictsLimitIsReachedNotExceeded(t *testing.T) {
+	free := New("root", versionset.Exactly(1), redecideUniverse(10, 50))
+	if _, err := free.Solve(); err != nil {
+		t.Fatalf("Solve: %v", err)
+	}
+	n := free.Stats.Backtracks
+	if n == 0 {
+		t.Fatal("fixture needs at least one conflict")
+	}
+	for limit, wantErr := range map[int]bool{n: true, n + 1: false} {
+		s := New("root", versionset.Exactly(1), redecideUniverse(10, 50))
+		s.MaxConflicts = limit
+		_, err := s.Solve()
+		if got := errors.Is(err, ErrMaxConflicts); got != wantErr {
+			t.Errorf("MaxConflicts=%d (solve needs %d): err = %v, want limit error %v", limit, n, err, wantErr)
+		}
+	}
+}
+
+// Promotion undos under ClashThreshold call BacktrackTo too, so they count. This
+// fixture has no conflicts without the threshold, yet counts one with it.
+func TestMaxConflictsCountsPromotionUndos(t *testing.T) {
+	solve := func(threshold, limit int) (*Solver[string, set], error) {
+		s := New("root", versionset.Exactly(1), fixtureClashFirst())
+		s.ClashThreshold, s.MaxConflicts = threshold, limit
+		_, err := s.Solve()
+		return s, err
+	}
+	if s, err := solve(0, 0); err != nil || s.Stats.Backtracks != 0 {
+		t.Fatalf("threshold 0: err = %v, Backtracks = %d, want none", err, s.Stats.Backtracks)
+	}
+	s, err := solve(1, 0)
+	if err != nil || s.Stats.Backtracks != 1 {
+		t.Fatalf("threshold 1: err = %v, Backtracks = %d, want 1 promotion undo", err, s.Stats.Backtracks)
+	}
+	if _, err := solve(1, 1); !errors.Is(err, ErrMaxConflicts) {
+		t.Errorf("MaxConflicts=1 with the promotion undo: err = %v, want ErrMaxConflicts", err)
+	}
+}

@@ -110,6 +110,11 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// MaxConflicts bounds how many conflicts (Stats.Backtracks) the solve may
 	// resolve before giving up with a *MaxConflictsError. Zero means no bound.
 	//
+	// The limit is reached, not exceeded: the solve gives up when the Nth
+	// conflict is resolved and more work remains. Stats.Backtracks counts
+	// every BacktrackTo call, so with ClashThreshold above zero the undos that
+	// promote a package to the second tier count too.
+	//
 	// Unlike MaxRounds it does not count the decisions made again after each
 	// backjump, so it suits large dependency sets. If both are set, the first
 	// one reached ends the solve.
