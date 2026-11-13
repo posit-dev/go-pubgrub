@@ -197,7 +197,7 @@ func (ps *PartialSolution[P, S]) Eligible(pkg P, set S) bool {
 	if !ok {
 		return true
 	}
-	return !asserted.Intersect(term.Positive(set)).IsAlwaysFalse()
+	return !asserted.Excludes(term.Positive(set))
 }
 
 // Decide records a decision: pkg is pinned to the single version denoted by set.
