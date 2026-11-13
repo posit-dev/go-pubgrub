@@ -9,22 +9,14 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-13
+
 ### Added
 
-- `Solver.MaxConflicts` (default 0, off): give up when that many conflicts (`Stats.Backtracks`) have been resolved and work remains, with `*MaxConflictsError`, matched by `errors.Is(err, ErrMaxConflicts)`. `MaxRounds` also counts decisions made again after each backjump, so it can stop a large solve after few conflicts. If both are set, the first one reached wins. Promotion undos under `ClashThreshold` also count.
-- `Solver.Stats`: counters for one `Solve` (decisions, backtracks, and more). Counting only; results are unchanged.
-- `Solver.MergeDependencies` (default off): fold dependency records of several versions of one package that need the same range of the same dependency package into one record. The search path can differ.
-- `Solver.RunningSatisfier` (default off): keep running terms so satisfier queries need not rescan the assignments. Same answers.
-- `Solver.ClashThreshold`: opt-in conflict-driven decision order. Packages that keep
-  turning up in conflicts are decided sooner. Zero (the default) changes nothing.
 - `Solver.ClashFirst`: with `ClashThreshold` positive, compare a package's tier before its
   version count, so a package that keeps clashing is decided before one with fewer versions.
   With `OwnOrder`, `Exact`-marked packages still go first. Off by default.
-- `Solver.StableDiscovery`: break rank ties by the order the solver first met each
-  package in a returned dependency list, not by first derivation. Off by default.
-- `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring
-  provider rank, with packages a provider marks `Exact` first. Off by default.
-- `Solver.StoredKeys`: keep each package's decide key between rounds and rebuild only stale ones. Same decisions. Off by default.
+- `Solver.MaxConflicts` (default 0, off): give up when that many conflicts (`Stats.Backtracks`) have been resolved and work remains, with `*MaxConflictsError`, matched by `errors.Is(err, ErrMaxConflicts)`. `MaxRounds` also counts decisions made again after each backjump, so it can stop a large solve after few conflicts. If both are set, the first one reached wins. Promotion undos under `ClashThreshold` also count.
 - `versionset.DisjointFromer`: optional interface a version set can implement so `IsDisjointFrom` skips building the intersection. It must agree with `a.Intersect(b).IsEmpty()`.
 - `Term.Excludes`: reports whether two terms cannot hold together, without building their intersection.
 
@@ -32,6 +24,21 @@ mistaken for a safe patch upgrade.
 
 - `Term.Relation`, `Term.Satisfies` and the solver's eligibility check allocate less when the version set implements `SubsetOfer` and `DisjointFromer`: they no longer build sets only to test them for emptiness. Sets without them make the same calls as before; answers are unchanged.
 - `versionset.IsDisjointFrom` now calls a set's own `IsDisjointFrom(S) bool` method when it has one, for every caller (including the solver's incompatibility code), not only `Term.Excludes`. A set type that already has such a method is picked up silently, so check that it agrees with `a.Intersect(b).IsEmpty()`.
+
+## [0.4.0] - 2026-11-12
+
+### Added
+
+- `Solver.Stats`: counters for one `Solve` (decisions, backtracks, and more). Counting only; results are unchanged.
+- `Solver.MergeDependencies` (default off): fold dependency records of several versions of one package that need the same range of the same dependency package into one record. The search path can differ.
+- `Solver.RunningSatisfier` (default off): keep running terms so satisfier queries need not rescan the assignments. Same answers.
+- `Solver.ClashThreshold`: opt-in conflict-driven decision order. Packages that keep
+  turning up in conflicts are decided sooner. Zero (the default) changes nothing.
+- `Solver.StableDiscovery`: break rank ties by the order the solver first met each
+  package in a returned dependency list, not by first derivation. Off by default.
+- `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring
+  provider rank, with packages a provider marks `Exact` first. Off by default.
+- `Solver.StoredKeys`: keep each package's decide key between rounds and rebuild only stale ones. Same decisions. Off by default.
 
 ## [0.3.0] - 2026-11-07
 
@@ -197,3 +204,7 @@ conflict-driven backjumping, and error reporting.
 - **Written from published prose, not translated from another implementation.** See
   `CONTRIBUTING.md` and `docs/ALGORITHM.md`, which lists the sources it was derived
   from.
+
+[Unreleased]: https://github.com/posit-dev/go-pubgrub/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/posit-dev/go-pubgrub/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/posit-dev/go-pubgrub/compare/v0.3.0...v0.4.0
