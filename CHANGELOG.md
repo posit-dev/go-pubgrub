@@ -30,6 +30,7 @@ mistaken for a safe patch upgrade.
 ### Changed
 
 - `Term.Relation`, `Term.Satisfies` and the solver's eligibility check allocate less when the version set implements `SubsetOfer` and `DisjointFromer`: they no longer build sets only to test them for emptiness. Sets without them make the same calls as before; answers are unchanged.
+- `versionset.IsDisjointFrom` now calls a set's own `IsDisjointFrom(S) bool` method when it has one, for every caller (including the solver's incompatibility code), not only `Term.Excludes`. A set type that already has such a method is picked up silently, so check that it agrees with `a.Intersect(b).IsEmpty()`.
 
 ## [0.3.0] - 2026-11-07
 
