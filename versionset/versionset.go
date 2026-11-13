@@ -75,6 +75,9 @@ func IsSubsetOf[S Set[S]](a, b S) bool {
 
 // IsDisjointFrom reports whether a and b share no versions.
 func IsDisjointFrom[S Set[S]](a, b S) bool {
+	if f, ok := any(a).(DisjointFromer[S]); ok {
+		return f.IsDisjointFrom(b)
+	}
 	return a.Intersect(b).IsEmpty()
 }
 
@@ -87,9 +90,20 @@ func Difference[S Set[S]](a, b S) S {
 }
 
 // SubsetOfer is an optional fast path for IsSubsetOf. It must agree with
-// a.Intersect(b.Complement()).IsEmpty().
+// a.Intersect(b.Complement()).IsEmpty(), be pure (no side effects, same answer
+// for the same inputs), and be consistent with IsEmpty. A wrong implementation
+// is not detected: it gives wrong solves or a false "no solution".
 type SubsetOfer[S any] interface {
 	IsSubsetOf(other S) bool
+}
+
+// DisjointFromer is an optional fast path for IsDisjointFrom. It must agree
+// with a.Intersect(b).IsEmpty(), be symmetric (a.IsDisjointFrom(b) equals
+// b.IsDisjointFrom(a)), be pure, and be consistent with IsEmpty. A wrong
+// implementation is not detected: it gives wrong solves or a false "no
+// solution".
+type DisjointFromer[S any] interface {
+	IsDisjointFrom(other S) bool
 }
 
 // Differencer is an optional fast path for Difference. It must agree with

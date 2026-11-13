@@ -25,6 +25,13 @@ mistaken for a safe patch upgrade.
 - `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring
   provider rank, with packages a provider marks `Exact` first. Off by default.
 - `Solver.StoredKeys`: keep each package's decide key between rounds and rebuild only stale ones. Same decisions. Off by default.
+- `versionset.DisjointFromer`: optional interface a version set can implement so `IsDisjointFrom` skips building the intersection. It must agree with `a.Intersect(b).IsEmpty()`.
+- `Term.Excludes`: reports whether two terms cannot hold together, without building their intersection.
+
+### Changed
+
+- `Term.Relation`, `Term.Satisfies` and the solver's eligibility check allocate less when the version set implements `SubsetOfer` and `DisjointFromer`: they no longer build sets only to test them for emptiness. Sets without them make the same calls as before; answers are unchanged.
+- `versionset.IsDisjointFrom` now calls a set's own `IsDisjointFrom(S) bool` method when it has one, for every caller (including the solver's incompatibility code), not only `Term.Excludes`. A set type that already has such a method is picked up silently, so check that it agrees with `a.Intersect(b).IsEmpty()`.
 
 ## [0.3.0] - 2026-11-07
 
