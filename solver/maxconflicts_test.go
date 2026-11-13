@@ -104,6 +104,17 @@ func TestMaxRoundsAndMaxConflictsFirstHitWins(t *testing.T) {
 			t.Fatalf("err = %v, want the round-limit error", err)
 		}
 	})
+	t.Run("tie goes to conflicts", func(t *testing.T) {
+		// Sweep MaxRounds so one value lands on the round the third conflict ends.
+		for r := 1; r < 600; r++ {
+			s := New("root", versionset.Exactly(1), redecideUniverse(10, 50))
+			s.MaxRounds, s.MaxConflicts = r, 3
+			_, err := s.Solve()
+			if s.Stats.Backtracks >= 3 && !errors.Is(err, ErrMaxConflicts) {
+				t.Fatalf("MaxRounds=%d: %d conflicts but err = %v", r, s.Stats.Backtracks, err)
+			}
+		}
+	})
 	t.Run("conflicts first", func(t *testing.T) {
 		s := New("root", versionset.Exactly(1), redecideUniverse(10, 50))
 		s.MaxRounds, s.MaxConflicts = 100000, 3

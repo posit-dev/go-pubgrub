@@ -303,11 +303,12 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 	}
 
 	for round := 0; ; round++ {
-		if s.MaxRounds > 0 && round >= s.MaxRounds {
-			return nil, fmt.Errorf("solver: gave up after %d rounds without settling", round)
-		}
+		// Conflicts first: a conflict limit reached in the last round wins a tie.
 		if s.MaxConflicts > 0 && s.ps.stats.Backtracks >= s.MaxConflicts {
 			return nil, &MaxConflictsError{Limit: s.MaxConflicts}
+		}
+		if s.MaxRounds > 0 && round >= s.MaxRounds {
+			return nil, fmt.Errorf("solver: gave up after %d rounds without settling", round)
 		}
 
 		// Resume on the package whose term conflict resolution left open,
