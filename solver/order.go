@@ -9,9 +9,14 @@ import "github.com/posit-dev/go-pubgrub/versionset"
 //
 // Places and marks only grow during a solve: backtracking never touches them.
 type packageOrder[P comparable] struct {
-	own    bool
-	places map[P]int
-	marked map[P]bool
+	own bool
+	// stable is set for StableDiscovery and OwnOrder: place breaks ties. Without it
+	// (ClashFirst alone) a tie keeps the incumbent, as the default order does.
+	stable bool
+	// tierFirst (ClashFirst) compares the tier before the rank, after OwnOrder's marks.
+	tierFirst bool
+	places    map[P]int
+	marked    map[P]bool
 }
 
 // newPackageOrder returns nil when both settings are off.
@@ -19,7 +24,7 @@ func newPackageOrder[P comparable](stable, own bool) *packageOrder[P] {
 	if !stable && !own {
 		return nil
 	}
-	return &packageOrder[P]{own: own, places: map[P]int{}, marked: map[P]bool{}}
+	return &packageOrder[P]{own: own, stable: true, places: map[P]int{}, marked: map[P]bool{}}
 }
 
 // place gives pkg the next unused number if it has none.
@@ -82,14 +87,20 @@ func (o *packageOrder[P]) prefer(a P, rankA, tierA int, b P, rankB, tierB int, a
 
 // preferStates is prefer on states read earlier, as a stored key holds them.
 func (o *packageOrder[P]) preferStates(a pkgState, rankA int, b pkgState, rankB int, aFound bool) bool {
-	if aFound && !o.own && rankA != rankB {
-		return rankA < rankB
-	}
 	if o.own && a.marked != b.marked {
 		return a.marked
 	}
+	if o.tierFirst && a.tier != b.tier {
+		return a.tier > b.tier
+	}
+	if aFound && !o.own && rankA != rankB {
+		return rankA < rankB
+	}
 	if a.tier != b.tier {
 		return a.tier > b.tier
+	}
+	if !o.stable {
+		return false
 	}
 	return a.before(b)
 }
