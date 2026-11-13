@@ -89,3 +89,49 @@ func TestPreferCandidateClashFirst(t *testing.T) {
 		t.Error("both unavailable: the higher tier must win")
 	}
 }
+
+// With OwnOrder, an Exact-marked package beats a clash-promoted unmarked one.
+func TestPreferCandidateClashFirstOwnOrderMarkedFirst(t *testing.T) {
+	o := newPackageOrder[string](false, true)
+	o.tierFirst = true
+	o.place("plain")
+	o.place("exact")
+	o.marked["exact"] = true
+	plain := withTier(candOf("plain", true, 9), tierFirst)
+	exact := withTier(candOf("exact", true, 1), tierDefault)
+
+	if !preferCandidate(exact, plain, o) {
+		t.Error("a marked package must beat a higher-tier unmarked one")
+	}
+	if preferCandidate(plain, exact, o) {
+		t.Error("a higher-tier unmarked package must not beat a marked one")
+	}
+	o.marked["plain"] = true
+	if !preferCandidate(plain, exact, o) {
+		t.Error("both marked: the higher tier must win")
+	}
+}
+
+// StoredKeys and StableDiscovery do not change the ClashFirst pick sequence.
+func TestClashFirstSamePicksWithStoredKeysAndStableDiscovery(t *testing.T) {
+	picks := func(stable, stored bool) string {
+		s := New("root", versionset.Exactly(1), fixtureClashFirst())
+		s.ClashThreshold, s.ClashFirst = 1, true
+		s.StableDiscovery, s.StoredKeys = stable, stored
+		var got []string
+		s.pickHook = func(pkg string, _ int) { got = append(got, pkg) }
+		if _, err := s.Solve(); err != nil {
+			t.Fatalf("Solve: %v", err)
+		}
+		return strings.Join(got, " ")
+	}
+	for _, stable := range []bool{false, true} {
+		plain, stored := picks(stable, false), picks(stable, true)
+		if plain != stored {
+			t.Errorf("stable=%v: picks %q with StoredKeys, %q without", stable, stored, plain)
+		}
+		if !stable && plain != "root c b d d d c b" {
+			t.Errorf("picks = %q, want %q", plain, "root c b d d d c b")
+		}
+	}
+}

@@ -119,8 +119,9 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 
 	// ClashFirst, with ClashThreshold positive, compares a package's tier before its
 	// rank (version count), so a package that keeps clashing is decided before a
-	// package with fewer versions. Ignored when ClashThreshold is not positive. Off
-	// by default; the order only changes which of several legal answers is found.
+	// package with fewer versions. With OwnOrder, Exact-marked packages still go
+	// first, then the tier. Ignored when ClashThreshold is not positive. Off by
+	// default; the order only changes which of several legal answers is found.
 	ClashFirst bool
 
 	// Test hooks. Both are unexported on purpose: the order is observable only

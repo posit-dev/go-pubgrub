@@ -18,7 +18,7 @@ mistaken for a safe patch upgrade.
   turning up in conflicts are decided sooner. Zero (the default) changes nothing.
 - `Solver.ClashFirst`: with `ClashThreshold` positive, compare a package's tier before its
   version count, so a package that keeps clashing is decided before one with fewer versions.
-  Off by default.
+  With `OwnOrder`, `Exact`-marked packages still go first. Off by default.
 - `Solver.StableDiscovery`: break rank ties by the order the solver first met each
   package in a returned dependency list, not by first derivation. Off by default.
 - `Solver.OwnOrder` and `Dependency.Exact`: the solver orders packages itself, ignoring

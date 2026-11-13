@@ -13,7 +13,7 @@ type packageOrder[P comparable] struct {
 	// stable is set for StableDiscovery and OwnOrder: place breaks ties. Without it
 	// (ClashFirst alone) a tie keeps the incumbent, as the default order does.
 	stable bool
-	// tierFirst (ClashFirst) compares the tier before the rank.
+	// tierFirst (ClashFirst) compares the tier before the rank, after OwnOrder's marks.
 	tierFirst bool
 	places    map[P]int
 	marked    map[P]bool
@@ -87,14 +87,14 @@ func (o *packageOrder[P]) prefer(a P, rankA, tierA int, b P, rankB, tierB int, a
 
 // preferStates is prefer on states read earlier, as a stored key holds them.
 func (o *packageOrder[P]) preferStates(a pkgState, rankA int, b pkgState, rankB int, aFound bool) bool {
+	if o.own && a.marked != b.marked {
+		return a.marked
+	}
 	if o.tierFirst && a.tier != b.tier {
 		return a.tier > b.tier
 	}
 	if aFound && !o.own && rankA != rankB {
 		return rankA < rankB
-	}
-	if o.own && a.marked != b.marked {
-		return a.marked
 	}
 	if a.tier != b.tier {
 		return a.tier > b.tier
