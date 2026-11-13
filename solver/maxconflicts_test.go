@@ -140,8 +140,11 @@ func TestMaxConflictsLimitIsReachedNotExceeded(t *testing.T) {
 		s := New("root", versionset.Exactly(1), redecideUniverse(10, 50))
 		s.MaxConflicts = limit
 		_, err := s.Solve()
-		if got := errors.Is(err, ErrMaxConflicts); got != wantErr {
-			t.Errorf("MaxConflicts=%d (solve needs %d): err = %v, want limit error %v", limit, n, err, wantErr)
+		if wantErr && !errors.Is(err, ErrMaxConflicts) {
+			t.Errorf("MaxConflicts=%d (solve needs %d): err = %v, want ErrMaxConflicts", limit, n, err)
+		}
+		if !wantErr && err != nil {
+			t.Errorf("MaxConflicts=%d (solve needs %d): err = %v, want success", limit, n, err)
 		}
 	}
 }
