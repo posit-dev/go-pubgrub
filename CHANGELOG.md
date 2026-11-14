@@ -9,6 +9,8 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-13
+
 ### Added
 
 - `Solver.Interrupt` (default nil, never interrupts): a `func() error` called once per round and once per step of conflict resolution. A non-nil result ends the solve with `*InterruptedError`, which wraps it, so `Interrupt = ctx.Err` makes `errors.Is(err, context.DeadlineExceeded)` work. Also matched by `errors.Is(err, ErrInterrupted)`. Nil leaves answers and `Stats` unchanged.
@@ -209,6 +211,7 @@ conflict-driven backjumping, and error reporting.
   `CONTRIBUTING.md` and `docs/ALGORITHM.md`, which lists the sources it was derived
   from.
 
-[Unreleased]: https://github.com/posit-dev/go-pubgrub/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/posit-dev/go-pubgrub/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/posit-dev/go-pubgrub/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/posit-dev/go-pubgrub/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/posit-dev/go-pubgrub/compare/v0.3.0...v0.4.0
