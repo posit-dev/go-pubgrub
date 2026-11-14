@@ -78,14 +78,15 @@ type Resolution[P comparable, S versionset.Set[S]] struct {
 func Resolve[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], st *Store[P, S], root P, conflict *Incompatibility[P, S],
 ) (Resolution[P, S], error) {
-	return resolve(ps, st, root, conflict, nil)
+	return resolve(ps, st, root, conflict, nil, nil)
 }
 
 // resolve is Resolve with a hook, told the one fact analysis ends with and the
 // package it leaves open. Intermediate facts and unsolvable ends are not reported.
+// interrupt, when set, is called once per step and ends the resolution on an error.
 func resolve[P comparable, S versionset.Set[S]](
 	ps *PartialSolution[P, S], st *Store[P, S], root P, conflict *Incompatibility[P, S],
-	learned func(blamed P, inc *Incompatibility[P, S]),
+	learned func(blamed P, inc *Incompatibility[P, S]), interrupt func() error,
 ) (Resolution[P, S], error) {
 	current := conflict
 
@@ -100,6 +101,12 @@ func resolve[P comparable, S versionset.Set[S]](
 		// spinning.
 		if current.IsEmpty() || isRootFailure(current, root) {
 			return Resolution[P, S]{Incompatibility: current, Unsolvable: true}, nil
+		}
+
+		if interrupt != nil {
+			if err := interrupt(); err != nil {
+				return Resolution[P, S]{}, err
+			}
 		}
 
 		satisfierIndex, satisfierPkg, ok := ps.SatisfierOf(current)

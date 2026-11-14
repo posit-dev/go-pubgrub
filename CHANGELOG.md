@@ -9,6 +9,10 @@ mistaken for a safe patch upgrade.
 
 ## [Unreleased]
 
+### Added
+
+- `Solver.Interrupt` (default nil, never interrupts): a `func() error` called once per round and once per step of conflict resolution. A non-nil result ends the solve with `*InterruptedError`, which wraps it, so `Interrupt = ctx.Err` makes `errors.Is(err, context.DeadlineExceeded)` work. Also matched by `errors.Is(err, ErrInterrupted)`. Nil leaves answers and `Stats` unchanged.
+
 ## [0.5.0] - 2026-11-13
 
 ### Added

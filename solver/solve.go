@@ -57,6 +57,26 @@ func (e *MaxConflictsError) Error() string {
 // Unwrap lets errors.Is match ErrMaxConflicts.
 func (e *MaxConflictsError) Unwrap() error { return ErrMaxConflicts }
 
+// ErrInterrupted is what errors.Is matches when Solver.Interrupt ends a solve.
+// It says the solver stopped, not that no solution exists.
+var ErrInterrupted = errors.New("solver: interrupted")
+
+// InterruptedError is returned when Solver.Interrupt returns an error.
+type InterruptedError struct {
+	// Rounds is the round the solve was in when it stopped.
+	Rounds int
+	// Err is what Interrupt returned.
+	Err error
+}
+
+// Error implements error.
+func (e *InterruptedError) Error() string {
+	return fmt.Sprintf("solver: interrupted in round %d: %v", e.Rounds, e.Err)
+}
+
+// Unwrap lets errors.Is match ErrInterrupted and the error Interrupt returned.
+func (e *InterruptedError) Unwrap() []error { return []error{ErrInterrupted, e.Err} }
+
 // Stats counts work done by one Solve. It is filled however Solve returns,
 // including Unsolvable and error returns, and counting never changes behavior.
 type Stats struct {
@@ -119,6 +139,13 @@ type Solver[P comparable, S versionset.Set[S]] struct {
 	// backjump, so it suits large dependency sets. If both are set, the first
 	// one reached ends the solve.
 	MaxConflicts int
+
+	// Interrupt, when set, is called once per round and once per step of
+	// conflict resolution. A non-nil error ends the solve with an
+	// *InterruptedError that wraps it, so passing context.Context's Err method
+	// makes errors.Is(err, context.DeadlineExceeded) work. Nil, the default,
+	// never interrupts.
+	Interrupt func() error
 
 	// MergeDependencies (default off): when a version's dependency record names
 	// the same depender package, dependency package and required range as a live
@@ -292,12 +319,23 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 
 	// settle propagates from pkg and resolves any conflict. It reports whether
 	// there was one, and where to resume if so.
+	var round int
+	check := func() error {
+		if s.Interrupt == nil {
+			return nil
+		}
+		if err := s.Interrupt(); err != nil {
+			return &InterruptedError{Rounds: round, Err: err}
+		}
+		return nil
+	}
+
 	settle := func(pkg P) (bool, P, error) {
 		result := Propagate(s.ps, s.st, pkg)
 		if !result.HasConflict() {
 			return false, pkg, nil
 		}
-		resolution, err := resolve(s.ps, s.st, s.root, result.Conflict, learned)
+		resolution, err := resolve(s.ps, s.st, s.root, result.Conflict, learned, check)
 		if err != nil {
 			return true, pkg, err
 		}
@@ -307,13 +345,17 @@ func (s *Solver[P, S]) Solve() (*Solution[P, S], error) {
 		return true, resolution.Package, nil
 	}
 
-	for round := 0; ; round++ {
+	for round = 0; ; round++ {
 		// Conflicts first: a conflict limit reached in the last round wins a tie.
 		if s.MaxConflicts > 0 && s.ps.stats.Backtracks >= s.MaxConflicts {
 			return nil, &MaxConflictsError{Limit: s.MaxConflicts}
 		}
 		if s.MaxRounds > 0 && round >= s.MaxRounds {
 			return nil, fmt.Errorf("solver: gave up after %d rounds without settling", round)
+		}
+
+		if err := check(); err != nil {
+			return nil, err
 		}
 
 		// Resume on the package whose term conflict resolution left open,
